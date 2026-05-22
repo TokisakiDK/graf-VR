@@ -1,420 +1,582 @@
+// ═══════════════════════════════════════════════════════════════════════════
+//  Player.js  —  Controles, físicas de colisión y lógica VR/Desktop
+// ═══════════════════════════════════════════════════════════════════════════
 import * as THREE from 'three';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { CELL } from './Labyrinth.js';
 
-let vrRig = null;
-let cameraRef = null;
-let character = null;
-let mixer = null;
-let idleAction, walkAction, walkBackAction, runAction, runBackAction;
-let currentAction;
+// ── Constantes de movimiento ──────────────────────────────────────────────
+const WALK_SPEED  = 4.0;   // m/s
+const RUN_SPEED   = 8.5;   // m/s
+const TURN_SPEED  = 2.0;   // rad/s (joystick)
+const PLAYER_H    = 1.65;  // altura de la cámara
+const COLLIDER_R  = 0.35;  // radio de colisión
 
-let isVR = false;
-let portalCooldown = 0;
+// ── Zona de interacción ───────────────────────────────────────────────────
+const INTERACT_DIST = 2.0; // metros
 
-export let isAerialView = false;
+export class Player {
+  /**
+   * @param {THREE.WebGLRenderer} renderer
+   * @param {THREE.Scene}         scene
+   * @param {THREE.PerspectiveCamera} camera
+   * @param {import('./Labyrinth.js').Labyrinth} labyrinth
+   * @param {object} callbacks  { onPinpadOpen, onPinpadClose, onDoorOpen }
+   */
+  constructor(renderer, scene, camera, labyrinth, callbacks = {}) {
+    this.renderer   = renderer;
+    this.scene      = scene;
+    this.camera     = camera;
+    this.labyrinth  = labyrinth;
+    this.callbacks  = callbacks;
 
-const keys = { w: false, a: false, s: false, d: false, shift: false };
+    // Estado
+    this.isVR         = false;
+    this.pinpadOpen   = false;
+    this.pinpadSolved = false;
+    this.enteredCode  = '';
+    this.hasCode      = false; // el jugador visitó el pinpad y tomó el código
 
-const config = {
-    eyeHeight: 175, radius: 80, walkSpeed: 380, runSpeed: 750, turnSpeedPC: 2.5, turnSpeedVR: 2.4, deadzone: 0.18
-};
+    // Movimiento desktop
+    this._keys   = {};
+    this._euler  = new THREE.Euler(0, 0, 0, 'YXZ');
+    this._locked = false; // pointer lock activo
 
-const vrInput = {
-    leftX: 0, leftY: 0, rightX: 0, rightY: 0, running: false,
-    interactNow: false, interactPrev: false, interactConsumed: false,
-    confirmNow: false, confirmPrev: false, confirmConsumed: false,
-    cancelNow: false, cancelPrev: false, cancelConsumed: false
-};
+    // VR controllers
+    this._controller0 = null; // mano izquierda (movimiento)
+    this._controller1 = null; // mano derecha (interacción)
+    this._gamepad0    = null;
+    this._gamepad1    = null;
 
-const playerPosition = new THREE.Vector3();
+    // Joystick acumulador de rotación (para evitar deriva)
+    this._turnAccum = 0;
+    this._prevRightX = 0;
 
-export function initPlayer(scene, spawnPosition, renderer, camera) {
-    cameraRef = camera;
-    
-    vrRig = new THREE.Group();
-    vrRig.name = 'VR_CAMERA_RIG';
-    vrRig.position.set(spawnPosition.x, config.eyeHeight, spawnPosition.z);
-    scene.add(vrRig);
+    // Helpers 3D
+    this._billboardHint = null;   // Texto flotante "Interactuar"
+    this._vrPinpadUI    = null;   // Panel 3D del PinPad
 
-    const loader = new FBXLoader(THREE.DefaultLoadingManager);
-    
-    // IMPORTANTE: Se añade '../' porque Player.js está en la carpeta /js/
-    loader.load('../player/Idle.fbx', (fbx) => {
-        character = fbx;
-        character.scale.set(1, 1, 1);
-        character.position.set(spawnPosition.x, 0, spawnPosition.z);
-        scene.add(character);
+    // Selección VR en teclado
+    this._vrPinpadButtons = [];
+    this._vrPinpadCursor  = 0;
+    this._vrPinpadNavCooldown = 0;
 
-        mixer = new THREE.AnimationMixer(character);
-        idleAction = mixer.clipAction(character.animations[0]);
+    // Posición temporal
+    this._tmpPos  = new THREE.Vector3();
+    this._moveVec = new THREE.Vector3();
+    this._fwd     = new THREE.Vector3();
 
-        loader.load('../player/Walking.fbx', (f) => walkAction = mixer.clipAction(f.animations[0]));
-        loader.load('../player/Walking Backwards.fbx', (f) => walkBackAction = mixer.clipAction(f.animations[0]));
-        loader.load('../player/Running.fbx', (f) => runAction = mixer.clipAction(f.animations[0]));
-        loader.load('../player/Run Backward.fbx', (f) => runBackAction = mixer.clipAction(f.animations[0]));
+    this._initDesktopControls();
+    this._createBillboardHint();
+    this._createVRPinpadUI();
+  }
 
-        currentAction = idleAction;
-        currentAction.play();
+  // ─────────────────────────────────────────────────────────────────────────
+  //  INIT DESKTOP
+  // ─────────────────────────────────────────────────────────────────────────
+  _initDesktopControls() {
+    const canvas = this.renderer.domElement;
+
+    // Teclado
+    window.addEventListener('keydown', e => {
+      this._keys[e.code] = true;
+      // 'F' = interactuar en desktop
+      if (e.code === 'KeyF') this._tryInteract();
+      // Escape = salir del pinpad
+      if (e.code === 'Escape' && this.pinpadOpen) this._closePinpad();
+    });
+    window.addEventListener('keyup', e => { this._keys[e.code] = false; });
+
+    // Pointer Lock (mouse look)
+    canvas.addEventListener('click', () => {
+      if (!this.isVR) canvas.requestPointerLock();
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this._locked = document.pointerLockElement === canvas;
+    });
+    document.addEventListener('mousemove', e => {
+      if (!this._locked) return;
+      this._euler.setFromQuaternion(this.camera.quaternion);
+      this._euler.y -= e.movementX * 0.0022;
+      this._euler.x -= e.movementY * 0.0022;
+      this._euler.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this._euler.x));
+      this.camera.quaternion.setFromEuler(this._euler);
+    });
+  }
+
+  // ── Inicializar gamepads VR ────────────────────────────────────────────
+  initVRControllers() {
+    this._controller0 = this.renderer.xr.getController(0); // izquierdo
+    this._controller1 = this.renderer.xr.getController(1); // derecho
+    this.scene.add(this._controller0, this._controller1);
+
+    // Botón A (button[4]) → interactuar / confirmar
+    this._controller1.addEventListener('selectstart', () => {
+      if (this.pinpadOpen) {
+        this._pinpadConfirmButton();
+      } else {
+        this._tryInteract();
+      }
     });
 
-    playerPosition.set(spawnPosition.x, 0, spawnPosition.z);
+    // Botón B (button[5]) → cerrar pinpad
+    this._controller1.addEventListener('squeezestart', () => {
+      if (this.pinpadOpen) this._closePinpad();
+    });
+  }
 
-    document.addEventListener('keydown', (e) => {
-        const k = e.key.toLowerCase();
-        if (k in keys) keys[k] = true;
-        if (e.key === 'Shift') keys.shift = true;
-        if (k === 'v') isAerialView = !isAerialView;
+  // ─────────────────────────────────────────────────────────────────────────
+  //  BILLBOARD HINT "Interactuar"
+  // ─────────────────────────────────────────────────────────────────────────
+  _createBillboardHint() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 128;
+    this._hintCanvas = canvas;
+    this._hintCtx    = canvas.getContext('2d');
+
+    const tex  = new THREE.CanvasTexture(canvas);
+    this._hintTex = tex;
+
+    const geo  = new THREE.PlaneGeometry(1.4, 0.35);
+    const mat  = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide
     });
 
-    document.addEventListener('keyup', (e) => {
-        const k = e.key.toLowerCase();
-        if (k in keys) keys[k] = false;
-        if (e.key === 'Shift') keys.shift = false;
+    this._billboardHint = new THREE.Mesh(geo, mat);
+    this._billboardHint.visible = false;
+    this._billboardHint.renderOrder = 10;
+    this.scene.add(this._billboardHint);
+  }
+
+  _drawHint(text) {
+    const ctx = this._hintCtx;
+    const w = this._hintCanvas.width, h = this._hintCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Fondo semitransparente
+    ctx.fillStyle = 'rgba(0, 20, 30, 0.82)';
+    ctx.strokeStyle = '#00ffe7';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(8, 8, w-16, h-16, 14);
+    ctx.fill(); ctx.stroke();
+
+    // Texto
+    ctx.fillStyle = '#00ffe7';
+    ctx.font = 'bold 38px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w/2, h/2);
+
+    this._hintTex.needsUpdate = true;
+  }
+
+  _showHint(text, worldPos) {
+    this._drawHint(text);
+    this._billboardHint.visible = true;
+    this._billboardHint.position.set(worldPos.x, PLAYER_H + 0.55, worldPos.z);
+  }
+
+  _hideHint() {
+    this._billboardHint.visible = false;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  VR PINPAD UI  (panel 3D flotante)
+  // ─────────────────────────────────────────────────────────────────────────
+  _createVRPinpadUI() {
+    // Raíz del panel
+    this._vrPinpadUI = new THREE.Group();
+    this._vrPinpadUI.visible = false;
+    this.scene.add(this._vrPinpadUI);
+
+    // Canvas 2D → Texture
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 640;
+    this._padCanvas = canvas;
+    this._padCtx    = canvas.getContext('2d');
+    this._padTex    = new THREE.CanvasTexture(canvas);
+
+    const geo = new THREE.PlaneGeometry(0.9, 1.1);
+    const mat = new THREE.MeshBasicMaterial({
+      map: this._padTex, transparent: true, depthWrite: false, side: THREE.DoubleSide
+    });
+    this._padMesh = new THREE.Mesh(geo, mat);
+    this._vrPinpadUI.add(this._padMesh);
+
+    this._renderPadCanvas();
+  }
+
+  _renderPadCanvas() {
+    const ctx = this._padCtx;
+    const W = 512, H = 640;
+    ctx.clearRect(0, 0, W, H);
+
+    // Fondo
+    ctx.fillStyle = 'rgba(3,12,20,0.94)';
+    ctx.strokeStyle = '#00ffe7';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(10, 10, W-20, H-20, 20);
+    ctx.fill(); ctx.stroke();
+
+    // Título
+    ctx.fillStyle = '#00ffe7';
+    ctx.font = 'bold 30px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('PINPAD', W/2, 60);
+
+    // Display del código ingresado
+    ctx.strokeStyle = '#00ffe7';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(60, 85, W-120, 60);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 42px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.enteredCode.padEnd(4, '_'), W/2, 130);
+
+    // Botones 0-9, *, #
+    const labels = ['1','2','3','4','5','6','7','8','9','*','0','#'];
+    const cols = 3, rows = 4;
+    const bw = 110, bh = 80, gap = 18;
+    const startX = 56, startY = 170;
+
+    this._vrPinpadButtons = [];
+    labels.forEach((label, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = startX + col * (bw + gap);
+      const y = startY + row * (bh + gap);
+      const isCursor = i === this._vrPinpadCursor;
+
+      ctx.fillStyle   = isCursor ? '#00ffe7' : 'rgba(0,60,80,0.85)';
+      ctx.strokeStyle = isCursor ? '#ffffff'  : '#00ffe7';
+      ctx.lineWidth   = isCursor ? 4 : 2;
+      ctx.beginPath();
+      ctx.roundRect(x, y, bw, bh, 10);
+      ctx.fill(); ctx.stroke();
+
+      ctx.fillStyle = isCursor ? '#000' : '#fff';
+      ctx.font = 'bold 32px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, x + bw/2, y + bh/2 + 10);
+
+      this._vrPinpadButtons.push({ label, x, y, w: bw, h: bh });
     });
 
-    renderer.xr.addEventListener('sessionstart', () => { 
-        isVR = true; 
-        resetVRInput();
-        if (character) character.visible = false; 
-        vrRig.add(camera); 
-        camera.position.set(0, 0, 0);
-        camera.rotation.set(0, 0, 0);
-        vrRig.position.set(playerPosition.x, config.eyeHeight, playerPosition.z);
-    });
+    // Instrucciones VR
+    ctx.fillStyle = 'rgba(0,255,231,0.45)';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('[Joystick] Navegar  [A] Seleccionar  [B] Cerrar', W/2, 622);
 
-    renderer.xr.addEventListener('sessionend', () => { 
-        isVR = false; 
-        resetVRInput(); 
-        if (character) character.visible = true; 
-        vrRig.remove(camera); 
-    });
-}
+    this._padTex.needsUpdate = true;
+  }
 
-export function getPlayerPosition() {
-    return playerPosition.clone();
-}
+  _openPinpad() {
+    if (this.pinpadOpen) return;
+    this.pinpadOpen = true;
+    this.enteredCode = '';
+    this._vrPinpadCursor = 0;
+    this._renderPadCanvas();
 
-export function getVRNavAxesRight() { return { x: vrInput.rightX, y: vrInput.rightY }; }
+    // Posicionar el panel frente al jugador
+    const camPos = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldPosition(camPos);
+    this.camera.getWorldDirection(camDir);
+    camDir.y = 0;
+    camDir.normalize();
 
-export function consumeVRInteractPressed() {
-    const justPressed = vrInput.interactNow && !vrInput.interactPrev && !vrInput.interactConsumed;
-    if (justPressed) { vrInput.interactConsumed = true; return true; }
-    return false;
-}
+    const panelPos = camPos.clone().addScaledVector(camDir, 1.2);
+    panelPos.y = PLAYER_H;
 
-export function consumeVRConfirmPressed() {
-    const justPressed = vrInput.confirmNow && !vrInput.confirmPrev && !vrInput.confirmConsumed;
-    if (justPressed) { vrInput.confirmConsumed = true; return true; }
-    return false;
-}
+    this._vrPinpadUI.position.copy(panelPos);
+    this._vrPinpadUI.lookAt(camPos);
+    this._vrPinpadUI.visible = true;
+    this._hideHint();
 
-export function consumeVRCancelPressed() {
-    const justPressed = vrInput.cancelNow && !vrInput.cancelPrev && !vrInput.cancelConsumed;
-    if (justPressed) { vrInput.cancelConsumed = true; return true; }
-    return false;
-}
+    if (this.callbacks.onPinpadOpen) this.callbacks.onPinpadOpen();
+  }
 
-export function updatePlayer(delta, camera, mapData, renderer, isUIOpen = false) {
-    if (isAerialView && !isVR) { updateAerialView(camera); return; }
+  _closePinpad() {
+    this.pinpadOpen = false;
+    this._vrPinpadUI.visible = false;
+    if (this.callbacks.onPinpadClose) this.callbacks.onPinpadClose();
+  }
 
-    if (isVR) readVRControls(renderer);
+  _pinpadConfirmButton() {
+    const btn = this._vrPinpadButtons[this._vrPinpadCursor];
+    if (!btn) return;
+    this._pinpadPressLabel(btn.label);
+  }
 
-    if (mixer && !isVR) mixer.update(delta);
-
-    if (!isUIOpen) {
-        if (isVR) updateVRMovement(delta, mapData);
-        else updatePCMovement(delta, mapData, camera);
+  _pinpadPressLabel(label) {
+    if (label === '#') {
+      // Backspace
+      this.enteredCode = this.enteredCode.slice(0, -1);
+    } else if (label === '*') {
+      // Limpiar
+      this.enteredCode = '';
+    } else if (this.enteredCode.length < 4 && /[0-9]/.test(label)) {
+      this.enteredCode += label;
     }
+    if (this.enteredCode.length === 4) {
+      this._checkCode();
+    }
+    this._renderPadCanvas();
+  }
 
-    updatePortals(delta, mapData);
-    updatePortalsFacingCamera(mapData, camera);
-}
+  _checkCode() {
+    if (this.enteredCode === this.labyrinth.secretCode) {
+      // ¡Correcto!
+      this.pinpadSolved = true;
+      this.hasCode = true;
+      setTimeout(() => this._closePinpad(), 800);
+      if (this.callbacks.onCodeCorrect) this.callbacks.onCodeCorrect();
+    } else {
+      // Incorrecto
+      this.enteredCode = '';
+      if (this.callbacks.onCodeWrong) this.callbacks.onCodeWrong();
+    }
+  }
 
-function crossFade(nextAction) {
-    if (!currentAction || !nextAction || currentAction === nextAction) return;
-    nextAction.reset().play();
-    currentAction.crossFadeTo(nextAction, 0.25, true);
-    currentAction = nextAction;
-}
+  // ─────────────────────────────────────────────────────────────────────────
+  //  INTERACCIÓN
+  // ─────────────────────────────────────────────────────────────────────────
+  _tryInteract() {
+    const playerPos = new THREE.Vector3();
+    this.camera.getWorldPosition(playerPos);
+    playerPos.y = 0;
 
-function resetVRInput() {
-    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.rightY = 0; vrInput.running = false;
-    vrInput.interactNow = false; vrInput.interactPrev = false; vrInput.interactConsumed = false;
-    vrInput.confirmNow = false; vrInput.confirmPrev = false; vrInput.confirmConsumed = false;
-    vrInput.cancelNow = false; vrInput.cancelPrev = false; vrInput.cancelConsumed = false;
-}
+    const toPinpad = this.labyrinth.pinpadPos.clone().setY(0).distanceTo(playerPos);
+    const toDoor   = this.labyrinth.doorPos.clone().setY(0).distanceTo(playerPos);
 
-function readVRControls(renderer) {
-    vrInput.interactPrev = vrInput.interactNow; vrInput.confirmPrev = vrInput.confirmNow; vrInput.cancelPrev = vrInput.cancelNow;
-    vrInput.interactNow = false; vrInput.confirmNow = false; vrInput.cancelNow = false;
-    vrInput.running = false; vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.rightY = 0;
+    if (toPinpad < INTERACT_DIST && !this.pinpadSolved) {
+      this._openPinpad();
+    } else if (toDoor < INTERACT_DIST) {
+      if (this.hasCode && this.callbacks.onDoorOpen) {
+        this.callbacks.onDoorOpen();
+      } else if (this.callbacks.onDoorLocked) {
+        this.callbacks.onDoorLocked();
+      }
+    }
+  }
 
-    const session = renderer.xr.getSession();
+  // ─────────────────────────────────────────────────────────────────────────
+  //  UPDATE  (llamado cada frame)
+  // ─────────────────────────────────────────────────────────────────────────
+  update(dt) {
+    if (this.isVR) {
+      this._updateVR(dt);
+    } else {
+      this._updateDesktop(dt);
+    }
+    this._updateHint();
+    if (this.pinpadOpen) this._updateVRPinpadNav(dt);
+    // Billboard siempre mira a la cámara
+    if (this._billboardHint.visible) {
+      this._billboardHint.lookAt(this.camera.position);
+    }
+  }
+
+  // ── Desktop movement ───────────────────────────────────────────────────
+  _updateDesktop(dt) {
+    if (this.pinpadOpen) return;
+
+    const speed = this._keys['ShiftLeft'] ? RUN_SPEED : WALK_SPEED;
+    this._moveVec.set(0, 0, 0);
+
+    this.camera.getWorldDirection(this._fwd);
+    this._fwd.y = 0;
+    this._fwd.normalize();
+    const right = new THREE.Vector3();
+    right.crossVectors(this._fwd, new THREE.Vector3(0, 1, 0)).normalize();
+
+    if (this._keys['KeyW'] || this._keys['ArrowUp'])    this._moveVec.addScaledVector(this._fwd, speed * dt);
+    if (this._keys['KeyS'] || this._keys['ArrowDown'])  this._moveVec.addScaledVector(this._fwd, -speed * dt);
+    if (this._keys['KeyA'] || this._keys['ArrowLeft'])  this._moveVec.addScaledVector(right, -speed * dt);
+    if (this._keys['KeyD'] || this._keys['ArrowRight']) this._moveVec.addScaledVector(right, speed * dt);
+
+    this._applyMovement(this._moveVec);
+  }
+
+  // ── VR movement ────────────────────────────────────────────────────────
+  _updateVR(dt) {
+    const session = this.renderer.xr.getSession();
     if (!session) return;
 
-    const sources = Array.from(session.inputSources);
-    for (let i = 0; i < sources.length; i++) {
-        const source = sources[i];
-        if (!source.gamepad) continue;
+    let lx = 0, ly = 0, rx = 0;
+    let running = false;
 
-        const gamepad = source.gamepad;
-        const axes = gamepad.axes || [];
-        const buttons = gamepad.buttons || [];
-        const stick = getStickAxes(axes);
-        const handedness = source.handedness || (i === 0 ? 'left' : 'right');
+    for (const src of session.inputSources) {
+      const gp = src.gamepad;
+      if (!gp) continue;
+      if (src.handedness === 'left') {
+        lx = gp.axes[2] ?? 0;   // joystick izq X
+        ly = gp.axes[3] ?? 0;   // joystick izq Y
+        running = gp.buttons[1]?.pressed ?? false; // gatillo
+      }
+      if (src.handedness === 'right') {
+        rx = gp.axes[2] ?? 0;   // joystick der X
+      }
+    }
 
-        if (handedness === 'left') {
-            vrInput.leftX = applyDeadzone(stick.x);
-            vrInput.leftY = applyDeadzone(stick.y);
-            vrInput.running = isButtonPressed(buttons, 0); 
+    // Movimiento
+    if (Math.abs(lx) > 0.12 || Math.abs(ly) > 0.12) {
+      const speed = running ? RUN_SPEED : WALK_SPEED;
+      this.camera.getWorldDirection(this._fwd);
+      this._fwd.y = 0; this._fwd.normalize();
+      const right = new THREE.Vector3();
+      right.crossVectors(this._fwd, new THREE.Vector3(0, 1, 0)).normalize();
+
+      this._moveVec.set(0, 0, 0);
+      this._moveVec.addScaledVector(this._fwd, -ly * speed * dt);
+      this._moveVec.addScaledVector(right,      lx * speed * dt);
+      this._applyMovement(this._moveVec);
+    }
+
+    // Rotación (joystick derecho) — snap turning
+    if (!this.pinpadOpen) {
+      const deadzone = 0.4;
+      if (Math.abs(rx) > deadzone && Math.abs(this._prevRightX) <= deadzone) {
+        const snapAngle = Math.PI / 6; // 30°
+        const ref = this.renderer.xr.getReferenceSpace();
+        if (ref) {
+          const angle = rx > 0 ? -snapAngle : snapAngle;
+          const rot = new XRRigidTransform(
+            { x: 0, y: 0, z: 0, w: 1 },
+            { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) }
+          );
+          const newRef = ref.getOffsetReferenceSpace(rot);
+          this.renderer.xr.setReferenceSpace(newRef);
         }
-
-        if (handedness === 'right') {
-            vrInput.rightX = applyDeadzone(stick.x);
-            vrInput.rightY = applyDeadzone(stick.y);
-            vrInput.interactNow = isButtonPressed(buttons, 0); 
-            vrInput.confirmNow = isButtonPressed(buttons, 4);  
-            vrInput.cancelNow = isButtonPressed(buttons, 5);   
-        }
+      }
+      this._prevRightX = rx;
+    } else {
+      // En pinpad, navegar con joystick derecho
+      // (manejado en _updateVRPinpadNav)
     }
-}
+  }
 
-function getStickAxes(axes) {
-    if (!axes || axes.length === 0) return { x: 0, y: 0 };
-    if (axes.length >= 4) {
-        const pairA = Math.abs(axes[0] || 0) + Math.abs(axes[1] || 0);
-        const pairB = Math.abs(axes[2] || 0) + Math.abs(axes[3] || 0);
-        if (pairB >= pairA) return { x: axes[2] || 0, y: axes[3] || 0 };
-    }
-    return { x: axes[0] || 0, y: axes[1] || 0 };
-}
+  // ── Colisión AABB simple contra muros ─────────────────────────────────
+  _applyMovement(delta) {
+    const pos = this.camera.position;
 
-function isButtonPressed(buttons, index) {
-    return !!(buttons[index] && buttons[index].pressed);
-}
-
-function applyDeadzone(value) {
-    return Math.abs(value) < config.deadzone ? 0 : value;
-}
-
-// =================== MOVIMIENTO VR 1RA PERSONA ===================
-function updateVRMovement(delta, mapData) {
-    if (!vrRig) return;
-
-    if (vrInput.rightX !== 0) vrRig.rotation.y -= vrInput.rightX * config.turnSpeedVR * delta;
-
-    const moveX = vrInput.leftX;
-    const moveY = vrInput.leftY;
-    if (moveX === 0 && moveY === 0) return;
-
-    const speed = vrInput.running ? config.runSpeed : config.walkSpeed;
-    const forward = new THREE.Vector3();
-    const right = new THREE.Vector3();
-    const up = new THREE.Vector3(0, 1, 0);
-
-    cameraRef.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() === 0) return;
-
-    forward.normalize();
-    right.crossVectors(forward, up).normalize();
-
-    const direction = new THREE.Vector3();
-    direction.addScaledVector(forward, -moveY);
-    direction.addScaledVector(right, moveX);
-
-    if (direction.lengthSq() === 0) return;
-    direction.normalize();
-
-    const movement = direction.multiplyScalar(speed * delta);
-    
-    const nextX = vrRig.position.x + movement.x;
-    if (!hayColision(nextX, vrRig.position.z, mapData)) {
-        vrRig.position.x = nextX;
+    // Mover en X
+    this._tmpPos.copy(pos);
+    this._tmpPos.x += delta.x;
+    if (!this._collides(this._tmpPos)) {
+      pos.x = this._tmpPos.x;
     }
 
-    const nextZ = vrRig.position.z + movement.z;
-    if (!hayColision(vrRig.position.x, nextZ, mapData)) {
-        vrRig.position.z = nextZ;
+    // Mover en Z
+    this._tmpPos.copy(pos);
+    this._tmpPos.z += delta.z;
+    if (!this._collides(this._tmpPos)) {
+      pos.z = this._tmpPos.z;
     }
 
-    playerPosition.set(vrRig.position.x, 0, vrRig.position.z);
-}
-
-// =================== MOVIMIENTO PC 3RA PERSONA (FBX) ===================
-function updatePCMovement(delta, mapData, camera) {
-    if (!character) return;
-
-    if (keys.a) character.rotation.y += config.turnSpeedPC * delta;
-    if (keys.d) character.rotation.y -= config.turnSpeedPC * delta;
-
-    let targetAction = idleAction;
-    let speed = 0;
-
-    if (keys.w) {
-        if (keys.shift) { targetAction = runAction; speed = config.runSpeed; } 
-        else { targetAction = walkAction; speed = config.walkSpeed; }
-    } else if (keys.s) {
-        if (keys.shift) { targetAction = runBackAction; speed = -config.runSpeed * 0.8; } 
-        else { targetAction = walkBackAction; speed = -config.walkSpeed * 0.8; }
+    // Mantener altura en VR el XRReferenceSpace posiciona, en desktop fijamos Y
+    if (!this.isVR) {
+      pos.y = PLAYER_H;
     }
+  }
 
-    if (targetAction !== currentAction) crossFade(targetAction);
+  _collides(pos) {
+    const cell = this.labyrinth.worldToCell(pos.x, pos.z);
+    const r0 = Math.floor((pos.z - COLLIDER_R + (this.labyrinth.ROWS * CELL) / 2) / CELL);
+    const r1 = Math.floor((pos.z + COLLIDER_R + (this.labyrinth.ROWS * CELL) / 2) / CELL);
+    const c0 = Math.floor((pos.x - COLLIDER_R + (this.labyrinth.COLS * CELL) / 2) / CELL);
+    const c1 = Math.floor((pos.x + COLLIDER_R + (this.labyrinth.COLS * CELL) / 2) / CELL);
 
-    if (speed !== 0) {
-        const direction = new THREE.Vector3(0, 0, 1);
-        direction.applyQuaternion(character.quaternion);
-        direction.normalize();
+    for (let r = r0; r <= r1; r++)
+      for (let c = c0; c <= c1; c++)
+        if (this.labyrinth.isWall(r, c)) return true;
 
-        const movement = direction.multiplyScalar(speed * delta);
-
-        const nextX = character.position.x + movement.x;
-        if (!hayColision(nextX, character.position.z, mapData)) {
-            character.position.x = nextX;
-        }
-
-        const nextZ = character.position.z + movement.z;
-        if (!hayColision(character.position.x, nextZ, mapData)) {
-            character.position.z = nextZ;
-        }
-    }
-
-    playerPosition.set(character.position.x, 0, character.position.z);
-
-    const playerHead = character.position.clone().add(new THREE.Vector3(0, 150, 0));
-    const zIdeal = keys.s ? -120 : -320; 
-    const yIdeal = keys.s ? 160 : 180;
-    
-    const idealCamOffset = new THREE.Vector3(0, yIdeal, zIdeal).applyQuaternion(character.quaternion);
-    const idealCamPos = character.position.clone().add(idealCamOffset);
-
-    const rayDir = idealCamPos.clone().sub(playerHead).normalize();
-    const rayDist = playerHead.distanceTo(idealCamPos);
-
-    const camRaycaster = new THREE.Raycaster();
-    camRaycaster.set(playerHead, rayDir);
-    const wallIntersects = camRaycaster.intersectObjects(mapData.obstacles, true);
-
-    let finalCamPos = idealCamPos.clone();
-    let isColliding = false;
-
-    if (wallIntersects.length > 0) {
-        const wallHit = wallIntersects[0];
-        if (wallHit.distance < rayDist) {
-            const safeDistance = Math.max(0, wallHit.distance - 30);
-            finalCamPos = playerHead.clone().add(rayDir.multiplyScalar(safeDistance));
-            isColliding = true;
-        }
-    }
-
-    if (isColliding) camera.position.lerp(finalCamPos, 0.4);
-    else camera.position.lerp(finalCamPos, 0.2);
-
-    camera.lookAt(character.position.clone().add(new THREE.Vector3(0, 120, 0)));
-}
-
-function hayColision(futuraX, futuraZ, mapData) {
-    const radio = config.radius;
-    const correccionOffset = mapData.offset + mapData.tileSize / 2;
-
-    const colDerecha = Math.floor((futuraX + correccionOffset + radio) / mapData.tileSize);
-    const colIzquierda = Math.floor((futuraX + correccionOffset - radio) / mapData.tileSize);
-    const filaAbajo = Math.floor((futuraZ + correccionOffset + radio) / mapData.tileSize);
-    const filaArriba = Math.floor((futuraZ + correccionOffset - radio) / mapData.tileSize);
-
-    if (filaArriba < 0 || filaAbajo >= mapData.grid.length || colIzquierda < 0 || colDerecha >= mapData.grid[0].length) return true;
-
-    const esquinas = [
-        mapData.grid[filaArriba][colIzquierda], mapData.grid[filaArriba][colDerecha],
-        mapData.grid[filaAbajo][colIzquierda], mapData.grid[filaAbajo][colDerecha]
-    ];
-    return esquinas.some((valor) => valor === 1 || valor === 5 || valor === 2);
-}
-
-function chocaConObstaculo(x, z, mapData) {
-    const playerBox = new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(x, config.eyeHeight / 2, z),
-        new THREE.Vector3(70, config.eyeHeight, 70)
-    );
-
-    for (const obstacle of mapData.obstacles) {
-        if (!obstacle || obstacle.isInstancedMesh) continue;
-
-        let obstacleBox;
-        if (obstacle.boundingBox) {
-            obstacle.updateMatrixWorld(true);
-            obstacle.boundingBox.setFromObject(obstacle);
-            obstacleBox = obstacle.boundingBox;
-        } else {
-            obstacle.updateMatrixWorld(true);
-            obstacleBox = new THREE.Box3().setFromObject(obstacle);
-        }
-        if (playerBox.intersectsBox(obstacleBox)) return true;
-    }
     return false;
-}
+  }
 
-function updatePortals(delta, mapData) {
-    if (portalCooldown > 0) { portalCooldown -= delta; return; }
+  // ── Actualizar hint de interacción ────────────────────────────────────
+  _updateHint() {
+    if (this.pinpadOpen) return;
 
-    const pos = getPlayerPosition();
+    const playerPos = new THREE.Vector3();
+    this.camera.getWorldPosition(playerPos);
+    playerPos.y = 0;
 
-    if (mapData.linkedPortals.length === 2) {
-        const p1 = mapData.linkedPortals[0], p2 = mapData.linkedPortals[1];
-        if (pos.distanceTo(p1) < 120) { teleportTo(p2.x, p2.z); portalCooldown = 2.0; playSound(mapData.sfxPortalB); return; }
-        if (pos.distanceTo(p2) < 120) { teleportTo(p1.x, p1.z); portalCooldown = 2.0; playSound(mapData.sfxPortalB); return; }
+    const toPinpad = this.labyrinth.pinpadPos.clone().setY(0).distanceTo(playerPos);
+    const toDoor   = this.labyrinth.doorPos.clone().setY(0).distanceTo(playerPos);
+
+    if (toPinpad < INTERACT_DIST && !this.pinpadSolved) {
+      const label = this.isVR ? '[A] Pinpad' : '[F] Pinpad';
+      this._showHint(label, this.labyrinth.pinpadPos);
+    } else if (toDoor < INTERACT_DIST) {
+      const label = this.hasCode
+        ? (this.isVR ? '[A] Abrir Puerta' : '[F] Abrir Puerta')
+        : 'Necesitas el código';
+      this._showHint(label, this.labyrinth.doorPos);
+    } else {
+      this._hideHint();
     }
+  }
 
-    if (mapData.randomPortals.length > 0) {
-        for (const portal of mapData.randomPortals) {
-            if (pos.distanceTo(portal) < 120) {
-                const randomSpot = getRandomSafeSpot(mapData);
-                if (randomSpot) {
-                    teleportTo(randomSpot.x, randomSpot.z); portalCooldown = 2.0; playSound(mapData.sfxPortalP);
-                }
-                return;
-            }
+  // ── Navegar VR PinPad con joystick derecho ────────────────────────────
+  _updateVRPinpadNav(dt) {
+    if (!this.pinpadOpen) return;
+    this._vrPinpadNavCooldown -= dt;
+    if (this._vrPinpadNavCooldown > 0) return;
+
+    const session = this.renderer.xr.getSession();
+    if (!session) return;
+
+    let rx = 0, ry = 0;
+    for (const src of session.inputSources) {
+      const gp = src.gamepad;
+      if (!gp) continue;
+      if (src.handedness === 'right') {
+        rx = gp.axes[2] ?? 0;
+        ry = gp.axes[3] ?? 0;
+
+        // Botón A → confirmar
+        if (gp.buttons[4]?.pressed) {
+          this._pinpadConfirmButton();
+          this._vrPinpadNavCooldown = 0.35;
+          return;
         }
+        // Botón B → cerrar
+        if (gp.buttons[5]?.pressed) {
+          this._closePinpad();
+          return;
+        }
+      }
     }
-}
 
-function getRandomSafeSpot(mapData) {
-    let randomSpot = null, isValid = false, attempts = 0;
-    while (!isValid && attempts < 50) {
-        randomSpot = mapData.safeSpots[Math.floor(Math.random() * mapData.safeSpots.length)];
-        isValid = true;
-        const allPortals = [...mapData.linkedPortals, ...mapData.randomPortals];
-        for (const p of allPortals) { if (randomSpot.distanceTo(p) < 300) { isValid = false; break; } }
-        attempts++;
+    const cols = 3;
+    const total = 12;
+    if (Math.abs(rx) > 0.5) {
+      this._vrPinpadCursor = (this._vrPinpadCursor + (rx > 0 ? 1 : -1) + total) % total;
+      this._vrPinpadNavCooldown = 0.2;
+      this._renderPadCanvas();
+    } else if (Math.abs(ry) > 0.5) {
+      this._vrPinpadCursor = (this._vrPinpadCursor + (ry > 0 ? cols : -cols) + total) % total;
+      this._vrPinpadNavCooldown = 0.2;
+      this._renderPadCanvas();
     }
-    return randomSpot;
-}
+  }
 
-function teleportTo(x, z) {
-    if (isVR && vrRig) {
-        vrRig.position.x = x; vrRig.position.z = z;
-    } else if (character) {
-        character.position.x = x; character.position.z = z;
+  // ── Establecer posición inicial ────────────────────────────────────────
+  setStartPosition(pos) {
+    if (!this.isVR) {
+      this.camera.position.set(pos.x, PLAYER_H, pos.z);
     }
-    playerPosition.set(x, 0, z);
-}
+    // En VR la posición la gestiona el XR reference space
+  }
 
-function playSound(sound) {
-    if (!sound || !sound.buffer) return;
-    if (sound.isPlaying) sound.stop();
-    sound.play();
-}
-
-function updatePortalsFacingCamera(mapData, camera) {
-    if (!mapData.portalsArray) return;
-    const camWorldPos = new THREE.Vector3();
-    camera.getWorldPosition(camWorldPos);
-    mapData.portalsArray.forEach((portal) => portal.lookAt(camWorldPos));
-}
-
-function updateAerialView(camera) {
-    const pos = getPlayerPosition();
-    const aerialPos = new THREE.Vector3(pos.x, 3000, pos.z + 10);
-    camera.position.lerp(aerialPos, 0.05);
-    camera.lookAt(pos);
+  // ── Desktop: manejo del teclado para el PinPad ────────────────────────
+  handleKeyForPinpad(code) {
+    if (!this.pinpadOpen) return;
+    if (code === 'Backspace') { this._pinpadPressLabel('#'); return; }
+    if (code === 'Escape')    { this._closePinpad(); return; }
+    const digit = code.replace('Digit','').replace('Numpad','');
+    if (/^[0-9]$/.test(digit)) this._pinpadPressLabel(digit);
+  }
 }

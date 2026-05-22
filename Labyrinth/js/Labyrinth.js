@@ -1,448 +1,452 @@
+// ═══════════════════════════════════════════════════════════════════════════
+//  Labyrinth.js  —  Generación de mapa, InstancedMesh y decoración
+// ═══════════════════════════════════════════════════════════════════════════
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
-function crearTexturaDeVideo(ruta) {
-    const video = document.createElement('video');
-    video.src = ruta;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.crossOrigin = 'anonymous';
-    video.preload = 'auto';
+// ── Constantes de geometría ─────────────────────────────────────────────────
+export const CELL       = 2;      // tamaño de casilla (metros)
+export const WALL_H     = 3.2;    // altura del muro
+export const WALL_T     = 0.25;   // grosor del muro (decorativo, el InstancedMesh es sólido)
 
-    const textura = new THREE.VideoTexture(video);
-    textura.colorSpace = THREE.SRGBColorSpace;
+// ── Tipos de mapa ────────────────────────────────────────────────────────────
+// Cada tipo define un set de texturas para suelos y paredes
+const MAP_TYPES = [
+  { floor: 'assets/textures/Alfombra/Alf1.jpg',  wall: 'assets/textures/Pared/Piedra.jpeg' },
+  { floor: 'assets/textures/Alfombra/Alf2.jpg',  wall: 'assets/textures/Pared/Madera.jpeg' },
+  { floor: 'assets/textures/Alfombra/Alf1.jpg',  wall: 'assets/textures/Pared/Blue.jpg'    },
+  { floor: 'assets/textures/Alfombra/Alf2.jpg',  wall: 'assets/textures/Pared/Fun.png'     },
+];
 
-    video.addEventListener('canplay', () => { video.play().catch(e => console.warn('Video pausado:', e)); });
-    return textura;
-}
+// ── Plantilla 15×15 (0=pasillo, 1=muro) ─────────────────────────────────────
+// Generada con DFS para garantizar conectividad total.
+// El algoritmo de expansión convierte cada celda a 3×3 (pared=1, pasillo=2).
+function generateMaze15() {
+  const R = 15, C = 15;
+  const grid = Array.from({ length: R }, () => new Array(C).fill(1));
 
-function crearTexturaGlifo(numero, posicionIndex) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 256;
-    const context = canvas.getContext('2d');
-
-    context.fillStyle = 'rgba(0, 0, 0, 0)';
-    context.fillRect(0, 0, 256, 256);
-    context.font = 'bold 130px Arial';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillStyle = '#0dcaf0';
-    context.shadowColor = '#000000';
-    context.shadowBlur = 15;
-    context.fillText(numero, 128, 100);
-
-    let puntos = '';
-    for (let i = 0; i <= posicionIndex; i++) puntos += '• ';
-
-    context.font = 'bold 40px Arial';
-    context.fillText(puntos.trim(), 128, 200);
-
-    const textura = new THREE.CanvasTexture(canvas);
-    textura.colorSpace = THREE.SRGBColorSpace;
-    return textura;
-}
-
-function randomSeguro() {
-    if (window.crypto && window.crypto.getRandomValues) {
-        const array = new Uint32Array(1);
-        window.crypto.getRandomValues(array);
-        return array[0] / 4294967295;
+  function carve(r, c) {
+    grid[r][c] = 0;
+    const dirs = [[0,2],[0,-2],[2,0],[-2,0]].sort(() => Math.random() - 0.5);
+    for (const [dr, dc] of dirs) {
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < R && nc >= 0 && nc < C && grid[nr][nc] === 1) {
+        grid[r + dr/2][c + dc/2] = 0;
+        carve(nr, nc);
+      }
     }
-    return Math.random();
+  }
+  carve(1, 1);
+  // Asegurar que (1,1) y (R-2,C-2) sean siempre pasillo
+  grid[R-2][C-2] = 0;
+  return grid;
 }
 
-function expandirMatrix(mapa) {
-    const res = [];
-    for (let r = 0; r < mapa.length; r++) {
-        let row1 = [];
-        for (let c = 0; c < mapa[r].length; c++) {
-            let v = mapa[r][c];
-            row1.push(v);
-            if (c % 2 !== 0) { 
-                if (v === 1) row1.push(1); 
-                else if (v === 5) row1.push(1); 
-                else if (v === 2) row1.push(0); 
-                else row1.push(0); 
-            }
+// ── Expansión: pasillo de 2 casillas, muro de 1 ──────────────────────────────
+// Transforma una cuadrícula N×N en (2N+1)×(2N+1)
+function expandMaze(base) {
+  const R = base.length, C = base[0].length;
+  const ER = 2*R + 1, EC = 2*C + 1;
+  const exp = Array.from({ length: ER }, () => new Array(EC).fill(1));
+
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
+      if (base[r][c] === 0) {
+        // Celda expandida: 2×2 pasillos en posición (2r+1, 2c+1)
+        exp[2*r+1][2*c+1] = 0;
+        exp[2*r+2][2*c+1] = 0;
+        exp[2*r+1][2*c+2] = 0;
+        exp[2*r+2][2*c+2] = 0;
+      }
+    }
+  }
+  // Reconstruir conexiones
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
+      if (base[r][c] === 0) {
+        if (r+1 < R && base[r+1][c] === 0) {
+          // Conexión vertical
+          exp[2*r+3][2*c+1] = 0;
+          exp[2*r+3][2*c+2] = 0;
         }
-        res.push(row1);
-
-        if (r % 2 !== 0) { 
-            let row2 = [];
-            for (let c = 0; c < mapa[r].length; c++) {
-                let v = mapa[r][c];
-                if (v === 1) {
-                    row2.push(1);
-                    if (c % 2 !== 0) row2.push(1);
-                } else {
-                    row2.push(0);
-                    if (c % 2 !== 0) row2.push(0);
-                }
-            }
-            res.push(row2);
+        if (c+1 < C && base[r][c+1] === 0) {
+          // Conexión horizontal
+          exp[2*r+1][2*c+3] = 0;
+          exp[2*r+2][2*c+3] = 0;
         }
+      }
     }
-    return res;
+  }
+  return exp;
 }
 
-export function construirMundo(scene) {
-    const texLoader = new THREE.TextureLoader(THREE.DefaultLoadingManager);
-    const gltfLoader = new GLTFLoader(THREE.DefaultLoadingManager);
+// ─────────────────────────────────────────────────────────────────────────────
+//  Clase principal Labyrinth
+// ─────────────────────────────────────────────────────────────────────────────
+export class Labyrinth {
+  /**
+   * @param {THREE.Scene} scene
+   * @param {THREE.WebGLRenderer} renderer
+   */
+  constructor(scene, renderer) {
+    this.scene    = scene;
+    this.renderer = renderer;
+    this.loader   = new GLTFLoader(THREE.DefaultLoadingManager);
+    this.texLoader = new THREE.TextureLoader(THREE.DefaultLoadingManager);
+    this.rgbeLoader = new RGBELoader(THREE.DefaultLoadingManager);
 
-    const mapState = {
-        obstacles: [], portalsArray: [], linkedPortals: [], randomPortals: [], safeSpots: [],
-        spawnPosition: new THREE.Vector3(), escapeDoor: null, doorPos: new THREE.Vector3(),
-        doorBarrier: null, doorGridIndex: null, pinpadObj: null, codigoSecreto: [], grid: [],
-        tileSize: 500, offset: 0, mapName: '', mapIndex: 0, mapTexture: ''
-    };
+    // Mapa
+    this.base15 = null;   // 15×15
+    this.grid   = null;   // expandido
+    this.ROWS   = 0;
+    this.COLS   = 0;
+    this.mapType = 0;
 
-    const glifosPosibles = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-    for (let i = 0; i < 4; i++) {
-        const index = Math.floor(randomSeguro() * glifosPosibles.length);
-        mapState.codigoSecreto.push(glifosPosibles.splice(index, 1)[0]);
+    // Instanced meshes
+    this.wallMesh  = null;
+    this.floorMesh = null;
+
+    // Celdas libres (para colocar objetos)
+    this.freeCells = [];
+
+    // Posiciones especiales (world coords)
+    this.startPos  = new THREE.Vector3();
+    this.pinpadPos = new THREE.Vector3();
+    this.doorPos   = new THREE.Vector3();
+    this.doorCell  = { r: 0, c: 0 };
+
+    // Modelos de decoración
+    this._decorModels = [];
+
+    // Código secreto
+    this.secretCode = String(Math.floor(Math.random() * 9000) + 1000);
+  }
+
+  // ── Carga todos los assets del laberinto ────────────────────────────────
+  async build() {
+    this._chooseMapType();
+    this._generateGrid();
+    await this._loadEnvironment();
+    this._buildInstancedWalls();
+    this._buildFloor();
+    this._placeLights();
+    await this._placeDecoration();
+    await this._placePinpad();
+    await this._placeDoor();
+    return this;
+  }
+
+  // ── Elige tipo de mapa aleatoriamente ───────────────────────────────────
+  _chooseMapType() {
+    this.mapType = Math.floor(Math.random() * MAP_TYPES.length);
+  }
+
+  // ── Genera y expande el laberinto ────────────────────────────────────────
+  _generateGrid() {
+    this.base15 = generateMaze15();
+    this.grid   = expandMaze(this.base15);
+    this.ROWS   = this.grid.length;
+    this.COLS   = this.grid[0].length;
+
+    // Recolectar celdas libres
+    this.freeCells = [];
+    for (let r = 0; r < this.ROWS; r++) {
+      for (let c = 0; c < this.COLS; c++) {
+        if (this.grid[r][c] === 0) this.freeCells.push({ r, c });
+      }
     }
 
-    const tileSize = 500;
-    const alturaMuro = 700;
-    
-    // IMPORTANTE: Se añade '../' porque Labyrinth.js está en la carpeta /js/
-    const floorTex = texLoader.load('../assets/Alfombra.jpg');
-    floorTex.wrapS = THREE.RepeatWrapping;
-    floorTex.wrapT = THREE.RepeatWrapping;
-    floorTex.repeat.set(30, 30); 
-
-    const mapa1 = [
-        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
-        [1, 8, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 9, 0, 1],
-        [1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
-        [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
-        [1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
-        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 9, 0, 0, 1],
-        [1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1],
-        [1, 0, 1, 9, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1],
-        [1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1],
-        [1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
-        [1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 8, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
-    ];
-
-    const mapa2 = [
-        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 8, 0, 0, 1],
-        [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
-        [1, 9, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1],
-        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 1, 0, 1, 9, 0, 0, 1, 0, 0, 0, 1],
-        [1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1],
-        [1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 8, 1],
-        [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1],
-        [1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 1],
-        [1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
-        [1, 9, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
-    ];
-
-    const mapa3 = [
-        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
-        [1, 8, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 9, 1],
-        [1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1],
-        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-        [1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1],
-        [1, 9, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-        [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
-        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 9, 1],
-        [1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1],
-        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
-        [1, 9, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 8, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
-    ];
-
-    const mapa4 = [
-        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1],
-        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
-        [1, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-        [1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
-        [1, 0, 0, 0, 1, 0, 0, 9, 0, 0, 1, 0, 0, 0, 1],
-        [1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
-        [1, 9, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 9, 1],
-        [1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
-        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 9, 1],
-        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
-        [1, 8, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
-    ];
-
-    const catalogoMapas = [
-        { name: 'Mapa 1', grid: mapa1, texture: 'tapiz.webp' },
-        { name: 'Mapa 2', grid: mapa2, texture: 'tapiz.webp' },
-        { name: 'Mapa 3', grid: mapa3, texture: 'Fun.png' },
-        { name: 'Mapa 4', grid: mapa4, texture: 'Fun.png' }
-    ];
-
-    const mapIndex = Math.floor(randomSeguro() * catalogoMapas.length);
-    const mapSelection = catalogoMapas[mapIndex];
-    
-    const mapa = expandirMatrix(mapSelection.grid);
-
-    const offset = (mapa.length * tileSize) / 2;
-    const tamanoMapa = mapa.length * tileSize;
-
-    const floorMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(tamanoMapa, tamanoMapa),
-        new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 })
+    // Inicio: primera celda libre cerca de (1,1)
+    this.startCell = this._nearestFree(1, 1);
+    this.startPos.set(
+      this.startCell.c * CELL - (this.COLS * CELL) / 2 + CELL / 2,
+      0,
+      this.startCell.r * CELL - (this.ROWS * CELL) / 2 + CELL / 2
     );
 
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.set(-250, 0, -250); 
-    floorMesh.receiveShadow = true;
-    scene.add(floorMesh);
+    // Pinpad: celda libre más lejana del inicio
+    const far = this._farthestFree(this.startCell);
+    this.pinpadCell = far;
+    this.pinpadPos.set(
+      far.c * CELL - (this.COLS * CELL) / 2 + CELL / 2,
+      0,
+      far.r * CELL - (this.ROWS * CELL) / 2 + CELL / 2
+    );
 
-    // IMPORTANTE: Se añade '../' porque Labyrinth.js está en la carpeta /js/
-    const texMuro = texLoader.load('../assets/' + mapSelection.texture);
-    texMuro.wrapS = THREE.RepeatWrapping;
-    texMuro.wrapT = THREE.RepeatWrapping;
-    texMuro.repeat.set(1, 1);
+    // Puerta: segunda más lejana (diferente al pinpad)
+    const far2 = this._farthestFreeExcluding(this.startCell, [far]);
+    this.doorCell = far2;
+    this.doorPos.set(
+      far2.c * CELL - (this.COLS * CELL) / 2 + CELL / 2,
+      0,
+      far2.r * CELL - (this.ROWS * CELL) / 2 + CELL / 2
+    );
+  }
 
-    const matMuroTapiz = new THREE.MeshStandardMaterial({ map: texMuro, roughness: 0.8 });
+  _nearestFree(r, c) {
+    let best = null, bestD = Infinity;
+    for (const cell of this.freeCells) {
+      const d = Math.abs(cell.r - r) + Math.abs(cell.c - c);
+      if (d < bestD) { bestD = d; best = cell; }
+    }
+    return best;
+  }
 
-    const matPortalB = new THREE.MeshBasicMaterial({
-        map: crearTexturaDeVideo('../assets/portal_b.webm'), transparent: true, side: THREE.DoubleSide
+  _farthestFree(from) {
+    let best = null, bestD = -Infinity;
+    for (const cell of this.freeCells) {
+      const d = Math.abs(cell.r - from.r) + Math.abs(cell.c - from.c);
+      if (d > bestD) { bestD = d; best = cell; }
+    }
+    return best;
+  }
+
+  _farthestFreeExcluding(from, excludes) {
+    let best = null, bestD = -Infinity;
+    for (const cell of this.freeCells) {
+      if (excludes.some(e => e.r === cell.r && e.c === cell.c)) continue;
+      const d = Math.abs(cell.r - from.r) + Math.abs(cell.c - from.c);
+      if (d > bestD) { bestD = d; best = cell; }
+    }
+    return best;
+  }
+
+  // ── Carga el entorno HDRI ─────────────────────────────────────────────────
+  async _loadEnvironment() {
+    const hdris = [
+      'assets/sky/QwN.exr',
+      'assets/sky/RogN.exr',
+      'assets/sky/SatN.exr',
+    ];
+    const hdri = hdris[Math.floor(Math.random() * hdris.length)];
+
+    return new Promise((resolve) => {
+      this.rgbeLoader.load(hdri, (texture) => {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        this.scene.environment = texture;
+        // No fondo para mantener el techo oscuro/misterioso
+        resolve();
+      }, undefined, () => resolve()); // si falla, continuar
     });
-    const matPortalP = new THREE.MeshBasicMaterial({
-        map: crearTexturaDeVideo('../assets/portal_p.webm'), transparent: true, side: THREE.DoubleSide
+  }
+
+  // ── InstancedMesh de muros ────────────────────────────────────────────────
+  _buildInstancedWalls() {
+    const wallTex = this._loadTex(MAP_TYPES[this.mapType].wall, 1, 1);
+
+    const geo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+    const mat = new THREE.MeshStandardMaterial({
+      map:          wallTex,
+      roughness:    0.85,
+      metalness:    0.05,
+      envMapIntensity: 0.4,
     });
 
-    const geomPortal = new THREE.PlaneGeometry(200, 200);
+    // Contar muros
+    let count = 0;
+    for (let r = 0; r < this.ROWS; r++)
+      for (let c = 0; c < this.COLS; c++)
+        if (this.grid[r][c] === 1) count++;
 
-    mapState.grid = mapa;
-    mapState.offset = offset;
+    this.wallMesh = new THREE.InstancedMesh(geo, mat, count);
+    this.wallMesh.castShadow    = false;
+    this.wallMesh.receiveShadow = false;
 
-    const geomMuro = new THREE.BoxGeometry(tileSize, alturaMuro, tileSize);
+    const dummy  = new THREE.Object3D();
+    const half_r = (this.ROWS * CELL) / 2;
+    const half_c = (this.COLS * CELL) / 2;
+    let idx = 0;
 
-    let spawnPositionSet = false;
-    const paredesDisponibles = [];
-
-    // IMPORTANTE: Se añade '../' porque Labyrinth.js está en la carpeta /js/
-    const catalogoDecoraciones = ['../models/cactus_maceta.glb', '../models/maceta.glb'];
-
-    const cargarPropEscena = (ruta, config) => {
-        gltfLoader.load(ruta, (gltf) => {
-            const m = gltf.scene;
-            m.scale.set(config.escala, config.escala, config.escala);
-            m.position.set(config.x, config.y || 0, config.z);
-
-            if (config.rotY) m.rotation.y = config.rotY;
-
-            m.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                    if (child.material) {
-                        const materials = Array.isArray(child.material) ? child.material : [child.material];
-                        materials.forEach((mat) => {
-                            if (mat.normalMap) { mat.normalMap.dispose(); mat.normalMap = null; }
-                            if (mat.specularMap) { mat.specularMap.dispose(); mat.specularMap = null; }
-                            if (mat.aoMap) { mat.aoMap.dispose(); mat.aoMap = null; }
-                            if (mat.map) mat.color.set(0xffffff);
-                            mat.roughness = 0.8;
-                            mat.metalness = 0.1;
-                            mat.needsUpdate = true;
-                        });
-                    }
-                }
-            });
-
-            scene.add(m);
-            m.updateMatrixWorld(true);
-            m.boundingBox = new THREE.Box3().setFromObject(m);
-
-            if (config.alignGround) {
-                m.position.y += -m.boundingBox.min.y;
-                m.updateMatrixWorld(true);
-                m.boundingBox.setFromObject(m);
-            }
-
-            if (config.isObstacle !== false) mapState.obstacles.push(m);
-            if (config.onLoad) config.onLoad(m);
-        });
-    };
-
-    let totalMuros = 0;
-    for (let f = 0; f < mapa.length; f++) {
-        for (let c = 0; c < mapa[f].length; c++) {
-            if (mapa[f][c] === 1 || mapa[f][c] === 5) totalMuros++;
+    for (let r = 0; r < this.ROWS; r++) {
+      for (let c = 0; c < this.COLS; c++) {
+        if (this.grid[r][c] === 1) {
+          dummy.position.set(
+            c * CELL - half_c + CELL / 2,
+            WALL_H / 2,
+            r * CELL - half_r + CELL / 2
+          );
+          dummy.updateMatrix();
+          this.wallMesh.setMatrixAt(idx++, dummy.matrix);
         }
+      }
     }
+    this.wallMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this.wallMesh);
+  }
 
-    const instancedWalls = new THREE.InstancedMesh(geomMuro, matMuroTapiz, totalMuros);
-    instancedWalls.castShadow = false;
-    instancedWalls.receiveShadow = true;
+  // ── Suelo único plano ─────────────────────────────────────────────────────
+  _buildFloor() {
+    const w = this.COLS * CELL;
+    const h = this.ROWS * CELL;
+    const floorTex = this._loadTex(MAP_TYPES[this.mapType].floor, w / 4, h / 4);
 
-    const dummy = new THREE.Object3D();
-    let wallCounter = 0;
-
-    for (let f = 0; f < mapa.length; f++) {
-        for (let c = 0; c < mapa[f].length; c++) {
-            const posX = c * tileSize - offset;
-            const posZ = f * tileSize - offset;
-            const valor = mapa[f][c];
-
-            if (valor === 1 || valor === 5) {
-                dummy.position.set(posX, 175, posZ);
-                dummy.updateMatrix();
-                instancedWalls.setMatrixAt(wallCounter, dummy.matrix);
-                wallCounter++;
-
-                if (valor === 5) {
-                    let pRotY = 0, pOffsetZ = 0, pOffsetX = 0;
-
-                    if (mapa[f + 1] && mapa[f + 1][c] === 0) { pRotY = 0; pOffsetZ = 250; } 
-                    else if (mapa[f - 1] && mapa[f - 1][c] === 0) { pRotY = Math.PI; pOffsetZ = -250; } 
-                    else if (mapa[f][c + 1] === 0) { pRotY = Math.PI / 2; pOffsetX = 250; } 
-                    else if (mapa[f][c - 1] === 0) { pRotY = -Math.PI / 2; pOffsetX = -250; }
-
-                    cargarPropEscena('../models/pinpad.glb', {
-                        escala: 3.5, x: posX + pOffsetX, y: 150, z: posZ + pOffsetZ, rotY: pRotY,
-                        onLoad: (mesh) => { mapState.pinpadObj = mesh; },
-                        isObstacle: false
-                    });
-                } else {
-                    if (mapa[f + 1] && mapa[f + 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ + 250, rotY: 0, isFloor: false });
-                    if (mapa[f - 1] && mapa[f - 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ - 250, rotY: Math.PI, isFloor: false });
-                    if (mapa[f][c + 1] === 0) paredesDisponibles.push({ x: posX + 250, z: posZ, rotY: -Math.PI / 2, isFloor: false });
-                    if (mapa[f][c - 1] === 0) paredesDisponibles.push({ x: posX - 250, z: posZ, rotY: Math.PI / 2, isFloor: false });
-                }
-            } else if (valor === 2) {
-                mapState.doorPos.set(posX + 125, 0, posZ + 125);
-                mapState.doorGridIndex = { r: f, c: c };
-
-                let dRotY = 0, dOffsetX = 125, dOffsetZ = 125;
-                const pushDoor = 125; 
-
-                if (mapa[f - 1] && mapa[f - 1][c] === 0) { dRotY = 0; dOffsetZ -= pushDoor; } 
-                else if (mapa[f + 1] && mapa[f + 1][c] === 0) { dRotY = Math.PI; dOffsetZ += pushDoor; } 
-                else if (mapa[f][c - 1] === 0) { dRotY = Math.PI / 2; dOffsetX += pushDoor; } 
-                else if (mapa[f][c + 1] === 0) { dRotY = -Math.PI / 2; dOffsetX -= pushDoor; }
-
-                cargarPropEscena('../models/door.glb', {
-                    escala: 3.8, x: posX + dOffsetX, y: 0, z: posZ + dOffsetZ, rotY: dRotY, alignGround: true,
-                    onLoad: (mesh) => { mapState.escapeDoor = mesh; },
-                    isObstacle: false
-                });
-
-                const doorBarrier = new THREE.Mesh(new THREE.BoxGeometry(tileSize*2, 350, 40), new THREE.MeshBasicMaterial({ visible: false }));
-                doorBarrier.position.set(posX + 125, 175, posZ + 125);
-                doorBarrier.updateMatrixWorld();
-                mapState.obstacles.push(doorBarrier);
-                mapState.doorBarrier = doorBarrier;
-            } else if (valor === 8) {
-                mapState.linkedPortals.push(new THREE.Vector3(posX + 125, 0, posZ + 125));
-                const p = new THREE.Mesh(geomPortal, matPortalB);
-                p.position.set(posX + 125, 100, posZ + 125);
-                scene.add(p);
-                mapState.portalsArray.push(p);
-            } else if (valor === 9) {
-                mapState.randomPortals.push(new THREE.Vector3(posX + 125, 0, posZ + 125));
-                const p = new THREE.Mesh(geomPortal, matPortalP);
-                p.position.set(posX + 125, 100, posZ + 125);
-                scene.add(p);
-                mapState.portalsArray.push(p);
-            } else if (valor === 0) {
-                if (!spawnPositionSet && (c % 2 !== 0 && r % 2 !== 0)) {
-                    mapState.spawnPosition.set(posX + 125, 0, posZ + 125);
-                    spawnPositionSet = true;
-                }
-
-                if (c % 2 !== 0 && r % 2 !== 0) {
-                    mapState.safeSpots.push(new THREE.Vector3(posX + 125, 0, posZ + 125));
-                }
-
-                paredesDisponibles.push({ x: posX, z: posZ, rotY: 0, isFloor: true });
-
-                let offsetX = 0, offsetZ = 0, formsL = false;
-                const pushAmount = 75;
-
-                const N = mapa[f - 1] ? mapa[f - 1][c] : 1;
-                const S = mapa[f + 1] ? mapa[f + 1][c] : 1;
-                const W = mapa[f][c - 1] !== undefined ? mapa[f][c - 1] : 1;
-                const E = mapa[f][c + 1] !== undefined ? mapa[f][c + 1] : 1;
-
-                if (N === 1 && W === 1 && S !== 1 && E !== 1) { formsL = true; offsetZ = -pushAmount; offsetX = -pushAmount; } 
-                else if (N === 1 && E === 1 && S !== 1 && W !== 1) { formsL = true; offsetZ = -pushAmount; offsetX = pushAmount; } 
-                else if (S === 1 && W === 1 && N !== 1 && E !== 1) { formsL = true; offsetZ = pushAmount; offsetX = -pushAmount; } 
-                else if (S === 1 && E === 1 && N !== 1 && W !== 1) { formsL = true; offsetZ = pushAmount; offsetX = pushAmount; }
-
-                const isSpawn = Math.abs(posX + 125 - mapState.spawnPosition.x) < 50 && Math.abs(posZ + 125 - mapState.spawnPosition.z) < 50;
-
-                if (formsL && !isSpawn && randomSeguro() > 0.60) {
-                    const recursoElegido = catalogoDecoraciones[Math.floor(randomSeguro() * catalogoDecoraciones.length)];
-                    const esCactus = recursoElegido.includes('cactus');
-                    cargarPropEscena(recursoElegido, {
-                        escala: esCactus ? 50.0 : 1.0, x: posX + offsetX, z: posZ + offsetZ, alignGround: true
-                    });
-                }
-            }
-        }
-    }
-
-    instancedWalls.instanceMatrix.needsUpdate = true;
-    instancedWalls.isInstancedMesh = true;
-    scene.add(instancedWalls);
-    mapState.obstacles.push(instancedWalls);
-
-    paredesDisponibles.sort(() => randomSeguro() - 0.5);
-    const lugaresParaCodigo = paredesDisponibles.splice(0, 4);
-
-    for (let i = 0; i < 4; i++) {
-        const data = lugaresParaCodigo[i];
-        if (!data) continue;
-
-        const meshSimbolo = new THREE.Mesh(
-            new THREE.PlaneGeometry(120, 120),
-            new THREE.MeshBasicMaterial({ map: crearTexturaGlifo(mapState.codigoSecreto[i], i), transparent: true })
-        );
-
-        if (data.isFloor) {
-            meshSimbolo.position.set(data.x, 2, data.z);
-            meshSimbolo.rotation.x = -Math.PI / 2;
-        } else {
-            meshSimbolo.position.set(data.x, 150, data.z);
-            meshSimbolo.rotation.y = data.rotY;
-        }
-        scene.add(meshSimbolo);
-    }
-
-    let cuadrosGenerados = 0;
-    for (let i = 0; i < paredesDisponibles.length; i++) {
-        const data = paredesDisponibles[i];
-        if (!data.isFloor && randomSeguro() > 0.50 && cuadrosGenerados < 30) {
-            cargarPropEscena('../models/cuadro.glb', {
-                escala: 14.0, x: data.x, y: 220, z: data.z, rotY: data.rotY, isObstacle: false
-            });
-            cuadrosGenerados++;
-        }
-    }
-
-    return mapState;
-}
-
-export function iniciarVideosLaberinto() {
-    const videos = document.querySelectorAll('video');
-    videos.forEach((video) => {
-        if (video.paused) {
-            video.play().catch((e) => { console.warn('Error reanudando video:', e); });
-        }
+    const geo = new THREE.PlaneGeometry(w, h);
+    const mat = new THREE.MeshStandardMaterial({
+      map:       floorTex,
+      roughness: 0.9,
+      metalness: 0.0,
     });
+    const floor = new THREE.Mesh(geo, mat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = false;
+    this.scene.add(floor);
+
+    // Techo oscuro
+    const ceilMat = new THREE.MeshStandardMaterial({ color: 0x080c10 });
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(w, h), ceilMat);
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.y = WALL_H;
+    this.scene.add(ceil);
+  }
+
+  // ── Iluminación básica ────────────────────────────────────────────────────
+  _placeLights() {
+    const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+    this.scene.add(ambient);
+
+    const dir = new THREE.DirectionalLight(0xffeedd, 0.9);
+    dir.position.set(10, 20, 10);
+    this.scene.add(dir);
+  }
+
+  // ── Decoración: cactus, maceta, cuadro ───────────────────────────────────
+  async _placeDecoration() {
+    const models = [
+      { path: 'models/cactus_maceta.glb', scale: 0.6, yOff: 0 },
+      { path: 'models/maceta.glb',        scale: 0.5, yOff: 0 },
+      { path: 'models/cuadro.glb',        scale: 0.8, yOff: 1.2 },
+    ];
+
+    const half_r = (this.ROWS * CELL) / 2;
+    const half_c = (this.COLS * CELL) / 2;
+
+    // Elegir ~20 celdas libres al azar para decorar
+    const candidates = [...this.freeCells]
+      .filter(cell =>
+        !this._isSpecial(cell) &&
+        !this._isNearStart(cell)
+      )
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 20);
+
+    for (const cell of candidates) {
+      const mdesc = models[Math.floor(Math.random() * models.length)];
+      const x = cell.c * CELL - half_c + CELL / 2;
+      const z = cell.r * CELL - half_r + CELL / 2;
+
+      try {
+        const gltf = await this._loadGLTF(mdesc.path);
+        const obj  = gltf.scene.clone(true);
+        obj.scale.setScalar(mdesc.scale);
+        obj.position.set(x, mdesc.yOff, z);
+        obj.rotation.y = Math.random() * Math.PI * 2;
+        // Para cuadros, pegar a la pared más cercana
+        if (mdesc.path.includes('cuadro')) {
+          obj.position.y = mdesc.yOff;
+        }
+        this.scene.add(obj);
+        this._decorModels.push(obj);
+      } catch (_) { /* silenciar si el modelo falla */ }
+    }
+  }
+
+  // ── PinPad ────────────────────────────────────────────────────────────────
+  async _placePinpad() {
+    try {
+      const gltf = await this._loadGLTF('models/pinpad.glb');
+      this.pinpadModel = gltf.scene;
+      this.pinpadModel.scale.setScalar(0.6);
+      this.pinpadModel.position.copy(this.pinpadPos);
+      this.pinpadModel.position.y = 0;
+      this.scene.add(this.pinpadModel);
+    } catch (_) {
+      // Fallback: caja naranja
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.8, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff3300, emissiveIntensity: 0.4 })
+      );
+      box.position.copy(this.pinpadPos);
+      box.position.y = 0.6;
+      this.scene.add(box);
+      this.pinpadModel = box;
+    }
+  }
+
+  // ── Puerta ────────────────────────────────────────────────────────────────
+  async _placeDoor() {
+    try {
+      const gltf = await this._loadGLTF('models/door.glb');
+      this.doorModel = gltf.scene;
+      this.doorModel.scale.setScalar(1.0);
+      this.doorModel.position.copy(this.doorPos);
+      this.doorModel.position.y = 0;
+      // Orientar puerta hacia el pasillo
+      this.doorModel.rotation.y = Math.random() > 0.5 ? 0 : Math.PI / 2;
+      this.scene.add(this.doorModel);
+    } catch (_) {
+      // Fallback: marco verde
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(1.0, 2.4, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0x00ff88, emissive: 0x00aa44, emissiveIntensity: 0.5 })
+      );
+      box.position.copy(this.doorPos);
+      box.position.y = 1.2;
+      this.scene.add(box);
+      this.doorModel = box;
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  _isSpecial(cell) {
+    return (
+      (cell.r === this.pinpadCell?.r && cell.c === this.pinpadCell?.c) ||
+      (cell.r === this.doorCell?.r   && cell.c === this.doorCell?.c)   ||
+      (cell.r === this.startCell?.r  && cell.c === this.startCell?.c)
+    );
+  }
+
+  _isNearStart(cell) {
+    if (!this.startCell) return false;
+    return Math.abs(cell.r - this.startCell.r) + Math.abs(cell.c - this.startCell.c) < 4;
+  }
+
+  _loadTex(url, repX = 1, repY = 1) {
+    const tex = this.texLoader.load(url);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repX, repY);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  _loadGLTF(path) {
+    return new Promise((resolve, reject) => {
+      this.loader.load(path, resolve, undefined, reject);
+    });
+  }
+
+  // ── Conversión mundo → celda ───────────────────────────────────────────
+  worldToCell(worldX, worldZ) {
+    const half_r = (this.ROWS * CELL) / 2;
+    const half_c = (this.COLS * CELL) / 2;
+    const c = Math.floor((worldX + half_c) / CELL);
+    const r = Math.floor((worldZ + half_r) / CELL);
+    return { r, c };
+  }
+
+  isWall(r, c) {
+    if (r < 0 || r >= this.ROWS || c < 0 || c >= this.COLS) return true;
+    return this.grid[r][c] === 1;
+  }
+
+  // Devuelve posición world del centro de una celda
+  cellToWorld(r, c) {
+    const half_r = (this.ROWS * CELL) / 2;
+    const half_c = (this.COLS * CELL) / 2;
+    return new THREE.Vector3(
+      c * CELL - half_c + CELL / 2,
+      0,
+      r * CELL - half_r + CELL / 2
+    );
+  }
 }
