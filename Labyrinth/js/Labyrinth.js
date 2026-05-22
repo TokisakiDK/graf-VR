@@ -60,7 +60,7 @@ export function construirMundo(scene) {
         obstacles: [], portalsArray: [], linkedPortals: [], randomPortals: [], safeSpots: [],
         spawnPosition: new THREE.Vector3(), escapeDoor: null, doorPos: new THREE.Vector3(),
         doorBarrier: null, doorGridIndex: null, pinpadObj: null, codigoSecreto: [], grid: [],
-        tileSize: 250, offset: 0, mapName: '', mapIndex: 0, mapTexture: ''
+        tileSize: 500, offset: 0, mapName: '', mapIndex: 0, mapTexture: '' // tileSize = 500
     };
 
     const glifosPosibles = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -69,90 +69,134 @@ export function construirMundo(scene) {
         mapState.codigoSecreto.push(glifosPosibles.splice(index, 1)[0]);
     }
 
-    const tileSize = 250;
-    
-    // Matrices rediseñadas: Pasillos de 2 casillas (0,0), muros de 1 casilla (1)
+    // PASILLOS EL DOBLE DE ANCHOS (500)
+    const tileSize = 500;
+    const alturaMuro = 700;
+    const tamanoMapa = 15 * tileSize; // 7500
+
+    const floorTex = texLoader.load('assets/Alfombra.jpg');
+    floorTex.wrapS = THREE.RepeatWrapping;
+    floorTex.wrapT = THREE.RepeatWrapping;
+    floorTex.repeat.set(30, 30); 
+
+    const floorMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(tamanoMapa, tamanoMapa),
+        new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 })
+    );
+
+    floorMesh.rotation.x = -Math.PI / 2;
+    floorMesh.position.set(-250, 0, -250);
+    floorMesh.receiveShadow = true;
+    scene.add(floorMesh);
+
+    const geomMuro = new THREE.BoxGeometry(tileSize, alturaMuro, tileSize);
+
     const mapa1 = [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 8, 0, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1],
-        [1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 8, 0, 0, 0, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1],
-        [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 9, 0, 0, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
+        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
+        [1, 8, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 9, 0, 1],
+        [1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 9, 0, 0, 1],
+        [1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1],
+        [1, 0, 1, 9, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1],
+        [1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+        [1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+        [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 8, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
     ];
 
     const mapa2 = [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
-        [1, 8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 9, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-        [1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1],
-        [1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 9, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-        [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 8, 0, 0, 0, 0, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
+        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 8, 0, 0, 1],
+        [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1],
+        [1, 9, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+        [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 1, 0, 1, 9, 0, 0, 1, 0, 0, 0, 1],
+        [1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 8, 1],
+        [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1],
+        [1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 1],
+        [1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+        [1, 9, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
+    ];
+
+    const mapa3 = [
+        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
+        [1, 8, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 9, 1],
+        [1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1],
+        [1, 9, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+        [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+        [1, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 1],
+        [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 9, 1],
+        [1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+        [1, 9, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 8, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
+    ];
+
+    const mapa4 = [
+        [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1],
+        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+        [1, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+        [1, 0, 0, 0, 1, 0, 0, 9, 0, 0, 1, 0, 0, 0, 1],
+        [1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+        [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
+        [1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+        [1, 9, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 9, 1],
+        [1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 9, 1],
+        [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+        [1, 8, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
     ];
 
     const catalogoMapas = [
         { name: 'Mapa 1', grid: mapa1, texture: 'tapiz.webp' },
-        { name: 'Mapa 2', grid: mapa2, texture: 'Fun.png' }
+        { name: 'Mapa 2', grid: mapa2, texture: 'tapiz.webp' },
+        { name: 'Mapa 3', grid: mapa3, texture: 'Fun.png' },
+        { name: 'Mapa 4', grid: mapa4, texture: 'Fun.png' }
     ];
 
     const mapIndex = Math.floor(randomSeguro() * catalogoMapas.length);
     const mapSelection = catalogoMapas[mapIndex];
     const mapa = mapSelection.grid;
 
-    mapState.grid = mapa;
-    const tamanoMapaX = mapa[0].length * tileSize;
-    const tamanoMapaZ = mapa.length * tileSize;
-    const offset = Math.max(tamanoMapaX, tamanoMapaZ) / 2;
-    mapState.offset = offset;
-
-    const floorTex = texLoader.load('assets/Alfombra.jpg');
-    floorTex.wrapS = THREE.RepeatWrapping;
-    floorTex.wrapT = THREE.RepeatWrapping;
-    floorTex.repeat.set(15, 15);
-
-    const floorMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(tamanoMapaX + 500, tamanoMapaZ + 500),
-        new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 })
-    );
-
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.set((tamanoMapaX/2) - offset, 0, (tamanoMapaZ/2) - offset);
-    floorMesh.receiveShadow = true;
-    scene.add(floorMesh);
-
-    const geomMuro = new THREE.BoxGeometry(tileSize, 350, tileSize);
     const texMuro = texLoader.load('assets/' + mapSelection.texture);
     texMuro.wrapS = THREE.RepeatWrapping;
     texMuro.wrapT = THREE.RepeatWrapping;
     texMuro.repeat.set(1, 1);
+
     const matMuroTapiz = new THREE.MeshStandardMaterial({ map: texMuro, roughness: 0.8 });
 
-    const matPortalB = new THREE.MeshBasicMaterial({ map: crearTexturaDeVideo('assets/portal_b.webm'), transparent: true, side: THREE.DoubleSide });
-    const matPortalP = new THREE.MeshBasicMaterial({ map: crearTexturaDeVideo('assets/portal_p.webm'), transparent: true, side: THREE.DoubleSide });
+    const matPortalB = new THREE.MeshBasicMaterial({
+        map: crearTexturaDeVideo('assets/portal_b.webm'), transparent: true, side: THREE.DoubleSide
+    });
+    const matPortalP = new THREE.MeshBasicMaterial({
+        map: crearTexturaDeVideo('assets/portal_p.webm'), transparent: true, side: THREE.DoubleSide
+    });
+
     const geomPortal = new THREE.PlaneGeometry(200, 200);
+    const offset = (mapa.length * tileSize) / 2;
+
+    mapState.grid = mapa;
+    mapState.offset = offset;
 
     let spawnPositionSet = false;
     const paredesDisponibles = [];
+
     const catalogoDecoraciones = ['models/cactus_maceta.glb', 'models/maceta.glb'];
 
     const cargarPropEscena = (ruta, config) => {
@@ -160,12 +204,25 @@ export function construirMundo(scene) {
             const m = gltf.scene;
             m.scale.set(config.escala, config.escala, config.escala);
             m.position.set(config.x, config.y || 0, config.z);
+
             if (config.rotY) m.rotation.y = config.rotY;
 
             m.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
+                    if (child.material) {
+                        const materials = Array.isArray(child.material) ? child.material : [child.material];
+                        materials.forEach((mat) => {
+                            if (mat.normalMap) { mat.normalMap.dispose(); mat.normalMap = null; }
+                            if (mat.specularMap) { mat.specularMap.dispose(); mat.specularMap = null; }
+                            if (mat.aoMap) { mat.aoMap.dispose(); mat.aoMap = null; }
+                            if (mat.map) mat.color.set(0xffffff);
+                            mat.roughness = 0.8;
+                            mat.metalness = 0.1;
+                            mat.needsUpdate = true;
+                        });
+                    }
                 }
             });
 
@@ -176,6 +233,7 @@ export function construirMundo(scene) {
             if (config.alignGround) {
                 m.position.y += -m.boundingBox.min.y;
                 m.updateMatrixWorld(true);
+                m.boundingBox.setFromObject(m);
             }
 
             if (config.isObstacle !== false) mapState.obstacles.push(m);
@@ -204,17 +262,19 @@ export function construirMundo(scene) {
             const valor = mapa[f][c];
 
             if (valor === 1 || valor === 5) {
-                dummy.position.set(posX, 175, posZ);
+                dummy.position.set(posX, alturaMuro / 2, posZ);
                 dummy.updateMatrix();
                 instancedWalls.setMatrixAt(wallCounter, dummy.matrix);
                 wallCounter++;
 
                 if (valor === 5) {
                     let pRotY = 0, pOffsetZ = 0, pOffsetX = 0;
-                    if (mapa[f + 1] && mapa[f + 1][c] === 0) { pRotY = 0; pOffsetZ = 125; } 
-                    else if (mapa[f - 1] && mapa[f - 1][c] === 0) { pRotY = Math.PI; pOffsetZ = -125; } 
-                    else if (mapa[f][c + 1] === 0) { pRotY = Math.PI / 2; pOffsetX = 125; } 
-                    else if (mapa[f][c - 1] === 0) { pRotY = -Math.PI / 2; pOffsetX = -125; }
+
+                    // Desfase de 250 (la mitad de 500)
+                    if (mapa[f + 1] && mapa[f + 1][c] === 0) { pRotY = 0; pOffsetZ = 250; } 
+                    else if (mapa[f - 1] && mapa[f - 1][c] === 0) { pRotY = Math.PI; pOffsetZ = -250; } 
+                    else if (mapa[f][c + 1] === 0) { pRotY = Math.PI / 2; pOffsetX = 250; } 
+                    else if (mapa[f][c - 1] === 0) { pRotY = -Math.PI / 2; pOffsetX = -250; }
 
                     cargarPropEscena('models/pinpad.glb', {
                         escala: 3.5, x: posX + pOffsetX, y: 150, z: posZ + pOffsetZ, rotY: pRotY,
@@ -222,27 +282,32 @@ export function construirMundo(scene) {
                         isObstacle: false
                     });
                 } else {
-                    if (mapa[f + 1] && mapa[f + 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ + 125, rotY: 0, isFloor: false });
-                    if (mapa[f - 1] && mapa[f - 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ - 125, rotY: Math.PI, isFloor: false });
-                    if (mapa[f][c + 1] === 0) paredesDisponibles.push({ x: posX + 125, z: posZ, rotY: -Math.PI / 2, isFloor: false });
-                    if (mapa[f][c - 1] === 0) paredesDisponibles.push({ x: posX - 125, z: posZ, rotY: Math.PI / 2, isFloor: false });
+                    if (mapa[f + 1] && mapa[f + 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ + 250, rotY: 0, isFloor: false });
+                    if (mapa[f - 1] && mapa[f - 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ - 250, rotY: Math.PI, isFloor: false });
+                    if (mapa[f][c + 1] === 0) paredesDisponibles.push({ x: posX + 250, z: posZ, rotY: -Math.PI / 2, isFloor: false });
+                    if (mapa[f][c - 1] === 0) paredesDisponibles.push({ x: posX - 250, z: posZ, rotY: Math.PI / 2, isFloor: false });
                 }
             } else if (valor === 2) {
                 mapState.doorPos.set(posX, 0, posZ);
                 mapState.doorGridIndex = { r: f, c: c };
 
                 let dRotY = 0, dOffsetX = 0, dOffsetZ = 0;
-                if (mapa[f - 1] && mapa[f - 1][c] === 0) { dRotY = 0; dOffsetZ = -125; } 
-                else if (mapa[f + 1] && mapa[f + 1][c] === 0) { dRotY = Math.PI; dOffsetZ = 125; } 
+                const pushDoor = 240; 
 
+                if (mapa[f - 1] && mapa[f - 1][c] === 0) { dRotY = 0; dOffsetZ = -pushDoor; } 
+                else if (mapa[f + 1] && mapa[f + 1][c] === 0) { dRotY = Math.PI; dOffsetZ = pushDoor; } 
+                else if (mapa[f][c - 1] === 0) { dRotY = Math.PI / 2; dOffsetX = pushDoor; } 
+                else if (mapa[f][c + 1] === 0) { dRotY = -Math.PI / 2; dOffsetX = -pushDoor; }
+
+                // Puerta escala 4.5 para rellenar el pasillo de 500
                 cargarPropEscena('models/door.glb', {
-                    escala: 2.2, x: posX + dOffsetX, y: 0, z: posZ + dOffsetZ, rotY: dRotY, alignGround: true,
+                    escala: 4.5, x: posX + dOffsetX, y: 0, z: posZ + dOffsetZ, rotY: dRotY, alignGround: true,
                     onLoad: (mesh) => { mapState.escapeDoor = mesh; },
                     isObstacle: false
                 });
 
-                const doorBarrier = new THREE.Mesh(new THREE.BoxGeometry(tileSize, 350, 40), new THREE.MeshBasicMaterial({ visible: false }));
-                doorBarrier.position.set(posX, 175, posZ);
+                const doorBarrier = new THREE.Mesh(new THREE.BoxGeometry(tileSize, alturaMuro, 40), new THREE.MeshBasicMaterial({ visible: false }));
+                doorBarrier.position.set(posX, alturaMuro / 2, posZ);
                 doorBarrier.updateMatrixWorld();
                 mapState.obstacles.push(doorBarrier);
                 mapState.doorBarrier = doorBarrier;
@@ -263,8 +328,45 @@ export function construirMundo(scene) {
                     mapState.spawnPosition.set(posX, 0, posZ);
                     spawnPositionSet = true;
                 }
+
                 mapState.safeSpots.push(new THREE.Vector3(posX, 0, posZ));
                 paredesDisponibles.push({ x: posX, z: posZ, rotY: 0, isFloor: true });
+
+                let offsetX = 0, offsetZ = 0, formsL = false;
+                const pushAmount = 180;
+
+                const N = mapa[f - 1] ? mapa[f - 1][c] : 1;
+                const S = mapa[f + 1] ? mapa[f + 1][c] : 1;
+                const W = mapa[f][c - 1] !== undefined ? mapa[f][c - 1] : 1;
+                const E = mapa[f][c + 1] !== undefined ? mapa[f][c + 1] : 1;
+
+                if (N === 1 && W === 1 && S !== 1 && E !== 1) { formsL = true; offsetZ = -pushAmount; offsetX = -pushAmount; } 
+                else if (N === 1 && E === 1 && S !== 1 && W !== 1) { formsL = true; offsetZ = -pushAmount; offsetX = pushAmount; } 
+                else if (S === 1 && W === 1 && N !== 1 && E !== 1) { formsL = true; offsetZ = pushAmount; offsetX = -pushAmount; } 
+                else if (S === 1 && E === 1 && N !== 1 && W !== 1) { formsL = true; offsetZ = pushAmount; offsetX = pushAmount; }
+
+                const isSpawn = Math.abs(posX - mapState.spawnPosition.x) < 10 && Math.abs(posZ - mapState.spawnPosition.z) < 10;
+
+                if (formsL && !isSpawn && randomSeguro() > 0.40) {
+                    const recursoElegido = catalogoDecoraciones[Math.floor(randomSeguro() * catalogoDecoraciones.length)];
+                    const esCactus = recursoElegido.includes('cactus');
+                    cargarPropEscena(recursoElegido, {
+                        escala: esCactus ? 50.0 : 1.0, x: posX + offsetX, z: posZ + offsetZ, alignGround: true
+                    });
+                } else if (!formsL && !isSpawn && (N === 1 || S === 1 || E === 1 || W === 1) && randomSeguro() > 0.70) {
+                    const recursoElegido = catalogoDecoraciones[Math.floor(randomSeguro() * catalogoDecoraciones.length)];
+                    const esCactus = recursoElegido.includes('cactus');
+
+                    let pOffsetX = 0, pOffsetZ = 0;
+                    if (N === 1) pOffsetZ = -pushAmount;
+                    else if (S === 1) pOffsetZ = pushAmount;
+                    else if (W === 1) pOffsetX = -pushAmount;
+                    else if (E === 1) pOffsetX = pushAmount;
+
+                    cargarPropEscena(recursoElegido, {
+                        escala: esCactus ? 50.0 : 1.0, x: posX + pOffsetX, z: posZ + pOffsetZ, alignGround: true
+                    });
+                }
             }
         }
     }
@@ -294,6 +396,18 @@ export function construirMundo(scene) {
             meshSimbolo.rotation.y = data.rotY;
         }
         scene.add(meshSimbolo);
+    }
+
+    let cuadrosGenerados = 0;
+    for (let i = 0; i < paredesDisponibles.length; i++) {
+        const data = paredesDisponibles[i];
+        if (!data.isFloor && randomSeguro() > 0.50 && cuadrosGenerados < 30) {
+            // FIX MARCOS 10x MÁS GRANDES: Escala 14.0 y centrados en Y = 350
+            cargarPropEscena('models/cuadro.glb', {
+                escala: 14.0, x: data.x, y: 350, z: data.z, rotY: data.rotY, isObstacle: false
+            });
+            cuadrosGenerados++;
+        }
     }
 
     return mapState;
