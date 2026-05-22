@@ -8,14 +8,14 @@ let portalCooldown = 0;
 
 export let isAerialView = false;
 
-const keys = { w: false, a: false, s: false, d: false, q: false, e: false, shift: false };
+const keys = { w: false, a: false, s: false, d: false, shift: false };
 
 const config = {
-    eyeHeight: 175, radius: 42, walkSpeed: 230, runSpeed: 430, turnSpeedPC: 2.5, turnSpeedVR: 2.2, deadzone: 0.18
+    eyeHeight: 175, radius: 40, walkSpeed: 180, runSpeed: 350, turnSpeedPC: 2.5, turnSpeedVR: 2.4, deadzone: 0.18
 };
 
 const vrInput = {
-    leftX: 0, leftY: 0, rightX: 0, running: false,
+    leftX: 0, leftY: 0, rightX: 0, rightY: 0, running: false,
     interactNow: false, interactPrev: false, interactConsumed: false,
     confirmNow: false, confirmPrev: false, confirmConsumed: false,
     cancelNow: false, cancelPrev: false, cancelConsumed: false
@@ -59,7 +59,7 @@ export function getPlayerPosition() {
     return playerPosition.clone();
 }
 
-export function getVRNavAxes() { return { x: vrInput.leftX, y: vrInput.leftY }; }
+export function getVRNavAxes() { return { x: vrInput.rightX, y: vrInput.rightY }; }
 
 export function consumeVRInteractPressed() {
     const justPressed = vrInput.interactNow && !vrInput.interactPrev && !vrInput.interactConsumed;
@@ -95,14 +95,14 @@ export function updatePlayer(delta, camera, mapData, renderer, isUIOpen = false)
 }
 
 function resetVRInput() {
-    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.running = false;
+    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.rightY = 0; vrInput.running = false;
     vrInput.interactNow = false; vrInput.interactPrev = false; vrInput.interactConsumed = false;
     vrInput.confirmNow = false; vrInput.confirmPrev = false; vrInput.confirmConsumed = false;
     vrInput.cancelNow = false; vrInput.cancelPrev = false; vrInput.cancelConsumed = false;
 }
 
 function readVRControls(renderer) {
-    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.running = false;
+    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.rightY = 0; vrInput.running = false;
     vrInput.interactPrev = vrInput.interactNow; vrInput.confirmPrev = vrInput.confirmNow; vrInput.cancelPrev = vrInput.cancelNow;
     vrInput.interactNow = false; vrInput.confirmNow = false; vrInput.cancelNow = false;
     vrInput.interactConsumed = false; vrInput.confirmConsumed = false; vrInput.cancelConsumed = false;
@@ -122,20 +122,23 @@ function readVRControls(renderer) {
         const handedness = source.handedness || (i === 0 ? 'left' : 'right');
 
         if (handedness === 'left') {
+            // Palanca Izquierda: Posición
             vrInput.leftX = applyDeadzone(stick.x);
             vrInput.leftY = applyDeadzone(stick.y);
-            // Gatillo Izquierdo (0 o 1) para Correr
-            vrInput.running = isButtonPressed(buttons, 0) || isButtonPressed(buttons, 1);
+            // Gatillo Izquierdo: Correr (Index 0)
+            vrInput.running = isButtonPressed(buttons, 0);
         }
 
         if (handedness === 'right') {
+            // Palanca Derecha: Cámara y Navegación UI
             vrInput.rightX = applyDeadzone(stick.x);
-            // Gatillo Derecho para Interactuar (Abrir puerta o Pinpad)
-            vrInput.interactNow = isButtonPressed(buttons, 0) || isButtonPressed(buttons, 1);
-            // Botón A suele llegar como índice 4 en Meta/Quest, y como 0 en algunos perfiles genéricos.
-            vrInput.confirmNow = isButtonPressed(buttons, 4) || isButtonPressed(buttons, 2);
-            // Botón B suele llegar como índice 5 en Meta/Quest, y como 3 en algunos perfiles genéricos.
-            vrInput.cancelNow = isButtonPressed(buttons, 5) || isButtonPressed(buttons, 3);
+            vrInput.rightY = applyDeadzone(stick.y);
+            // Gatillo Derecho: Interactuar (Index 0)
+            vrInput.interactNow = isButtonPressed(buttons, 0);
+            // Botón A: Confirmar/Seleccionar (Index 4)
+            vrInput.confirmNow = isButtonPressed(buttons, 4);
+            // Botón B: Cancelar/Salir UI (Index 5)
+            vrInput.cancelNow = isButtonPressed(buttons, 5);
         }
     }
 }
@@ -150,9 +153,8 @@ function getStickAxes(axes) {
     return { x: axes[0] || 0, y: axes[1] || 0 };
 }
 
-function isButtonPressed(buttons, index, threshold = 0.45) {
-    const button = buttons[index];
-    return !!(button && (button.pressed || button.value > threshold));
+function isButtonPressed(buttons, index) {
+    return !!(buttons[index] && buttons[index].pressed);
 }
 
 function applyDeadzone(value) {
@@ -190,27 +192,19 @@ function updateVRMovement(delta, mapData) {
 }
 
 function updateKeyboardMovement(delta, mapData) {
-    if (keys.q) vrRig.rotation.y += config.turnSpeedPC * delta;
-    if (keys.e) vrRig.rotation.y -= config.turnSpeedPC * delta;
+    if (keys.a) vrRig.rotation.y += config.turnSpeedPC * delta;
+    if (keys.d) vrRig.rotation.y -= config.turnSpeedPC * delta;
 
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(vrRig.quaternion);
-    forward.y = 0;
-    forward.normalize();
+    let speed = 0;
+    if (keys.w) speed = keys.shift ? config.runSpeed : config.walkSpeed;
+    if (keys.s) speed = keys.shift ? -config.runSpeed : -config.walkSpeed;
 
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(vrRig.quaternion);
-    right.y = 0;
-    right.normalize();
+    if (speed === 0) return;
 
-    const direction = new THREE.Vector3();
-    if (keys.w) direction.add(forward);
-    if (keys.s) direction.sub(forward);
-    if (keys.d) direction.add(right);
-    if (keys.a) direction.sub(right);
-
-    if (direction.lengthSq() === 0) return;
+    const direction = new THREE.Vector3(0, 0, -1);
+    direction.applyQuaternion(vrRig.quaternion);
     direction.normalize();
 
-    const speed = keys.shift ? config.runSpeed : config.walkSpeed;
     const movement = direction.multiplyScalar(speed * delta);
     tryMove(movement.x, movement.z, mapData);
 }
@@ -234,25 +228,8 @@ function tryMove(moveX, moveZ, mapData) {
 
 function hayColision(futuraX, futuraZ, mapData) {
     const radio = config.radius;
-
-    if (mapData.worldBounds) {
-        if (futuraX - radio < mapData.worldBounds.minX || futuraX + radio > mapData.worldBounds.maxX) return true;
-        if (futuraZ - radio < mapData.worldBounds.minZ || futuraZ + radio > mapData.worldBounds.maxZ) return true;
-    }
-
-    const playerBox = new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(futuraX, config.eyeHeight / 2, futuraZ),
-        new THREE.Vector3(radio * 2, config.eyeHeight, radio * 2)
-    );
-
-    if (Array.isArray(mapData.wallBoxes)) {
-        for (const wallBox of mapData.wallBoxes) {
-            if (playerBox.intersectsBox(wallBox)) return true;
-        }
-        return false;
-    }
-
     const correccionOffset = mapData.offset + mapData.tileSize / 2;
+
     const colDerecha = Math.floor((futuraX + correccionOffset + radio) / mapData.tileSize);
     const colIzquierda = Math.floor((futuraX + correccionOffset - radio) / mapData.tileSize);
     const filaAbajo = Math.floor((futuraZ + correccionOffset + radio) / mapData.tileSize);
@@ -297,13 +274,13 @@ function updatePortals(delta, mapData) {
 
     if (mapData.linkedPortals.length === 2) {
         const p1 = mapData.linkedPortals[0], p2 = mapData.linkedPortals[1];
-        if (pos.distanceTo(p1) < 180) { teleportTo(p2.x, p2.z); portalCooldown = 2.0; playSound(mapData.sfxPortalB); return; }
-        if (pos.distanceTo(p2) < 180) { teleportTo(p1.x, p1.z); portalCooldown = 2.0; playSound(mapData.sfxPortalB); return; }
+        if (pos.distanceTo(p1) < 120) { teleportTo(p2.x, p2.z); portalCooldown = 2.0; playSound(mapData.sfxPortalB); return; }
+        if (pos.distanceTo(p2) < 120) { teleportTo(p1.x, p1.z); portalCooldown = 2.0; playSound(mapData.sfxPortalB); return; }
     }
 
     if (mapData.randomPortals.length > 0) {
         for (const portal of mapData.randomPortals) {
-            if (pos.distanceTo(portal) < 180) {
+            if (pos.distanceTo(portal) < 120) {
                 const randomSpot = getRandomSafeSpot(mapData);
                 if (randomSpot) {
                     teleportTo(randomSpot.x, randomSpot.z); portalCooldown = 2.0; playSound(mapData.sfxPortalP);
@@ -320,7 +297,7 @@ function getRandomSafeSpot(mapData) {
         randomSpot = mapData.safeSpots[Math.floor(Math.random() * mapData.safeSpots.length)];
         isValid = true;
         const allPortals = [...mapData.linkedPortals, ...mapData.randomPortals];
-        for (const p of allPortals) { if (randomSpot.distanceTo(p) < 550) { isValid = false; break; } }
+        for (const p of allPortals) { if (randomSpot.distanceTo(p) < 300) { isValid = false; break; } }
         attempts++;
     }
     return randomSpot;
@@ -346,7 +323,7 @@ function updatePortalsFacingCamera(mapData, camera) {
 
 function updateAerialView(camera) {
     const pos = getPlayerPosition();
-    const aerialPos = new THREE.Vector3(pos.x, 5200, pos.z + 10);
+    const aerialPos = new THREE.Vector3(pos.x, 3000, pos.z + 10);
     camera.position.lerp(aerialPos, 0.05);
     camera.lookAt(pos);
 }

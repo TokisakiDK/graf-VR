@@ -48,14 +48,13 @@ function init() {
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
 
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.xr.enabled = true;
 
     document.body.appendChild(
@@ -76,7 +75,7 @@ function init() {
 
     crearPinpadVR3D();
     
-    vrPrompt = crearTextoPlano('', 500, 60, '#ffcc00');
+    vrPrompt = crearTextoPlano('', 700, 70, '#ffcc00');
     vrPrompt.visible = false;
     scene.add(vrPrompt);
 
@@ -121,7 +120,7 @@ function prepararPantallaCargaSegura() {
 
     THREE.DefaultLoadingManager.onLoad = function () {
         clearTimeout(fallbackTimer);
-        mostrarPantallaInicio(); // ESTO FALTABA: Oculta la pantalla cuando todo carga con éxito
+        mostrarPantallaInicio();
     };
 
     THREE.DefaultLoadingManager.onError = function (url) {
@@ -140,11 +139,8 @@ function configurarInicio() {
     const startBtn = document.getElementById('start-btn');
     if (!startBtn) return;
     startBtn.addEventListener('click', () => {
-        // Garantiza que el audio se desbloquee al hacer clic
         if (THREE.AudioContext.getContext().state !== 'running') {
-            THREE.AudioContext.getContext().resume().then(() => {
-                iniciarJuego();
-            });
+            THREE.AudioContext.getContext().resume().then(() => { iniciarJuego(); });
         } else {
             iniciarJuego();
         }
@@ -158,9 +154,7 @@ function iniciarJuego() {
     iniciarVideosLaberinto();
     gameStarted = true;
 
-    if (bgMusic && bgMusic.buffer && !bgMusic.isPlaying) {
-        bgMusic.play();
-    }
+    if (bgMusic && bgMusic.buffer && !bgMusic.isPlaying) { bgMusic.play(); }
 }
 
 function configurarTeclado() {
@@ -206,16 +200,11 @@ function configurarPinpadHTML() {
 }
 
 function cargarCielo() {
-    // RUTAS CORREGIDAS (sin ../)
-    const catalogoCielos = [
-        'assets/sky/sky_1.hdr', 'assets/sky/sky_2.hdr', 'assets/sky/sky_3.hdr', 'assets/sky/sky_4.hdr'
-    ];
+    const catalogoCielos = ['assets/sky/sky_1.exr', 'assets/sky/sky_2.exr', 'assets/sky/sky_3.exr', 'assets/sky/sky_4.exr'];
     const cieloElegido = catalogoCielos[Math.floor(Math.random() * catalogoCielos.length)];
     const rgbeLoader = new RGBELoader(THREE.DefaultLoadingManager);
 
-    rgbeLoader.load(
-        cieloElegido,
-        (texture) => {
+    rgbeLoader.load(cieloElegido, (texture) => {
             texture.mapping = THREE.EquirectangularReflectionMapping;
             scene.background = texture;
             scene.environment = texture;
@@ -224,9 +213,7 @@ function cargarCielo() {
             const skyMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
             const skySphere = new THREE.Mesh(skyGeo, skyMat);
             scene.add(skySphere);
-        },
-        undefined,
-        () => { scene.background = new THREE.Color(0xdbeafe); }
+        }, undefined, () => { scene.background = new THREE.Color(0xdbeafe); }
     );
 }
 
@@ -244,10 +231,7 @@ function crearAudio() {
     camera.add(listener);
     const audioLoader = new THREE.AudioLoader(THREE.DefaultLoadingManager);
 
-    // RUTAS CORREGIDAS (sin ../)
-    const catalogoAudio = [
-        'assets/bgm/dreamcore.wav', 'assets/bgm/dreamcore_2.wav', 'assets/bgm/dreamcore_3.wav', 'assets/bgm/dreamcore_4.wav'
-    ];
+    const catalogoAudio = ['assets/bgm/dreamcore.wav', 'assets/bgm/dreamcore_2.wav', 'assets/bgm/dreamcore_3.wav', 'assets/bgm/dreamcore_4.wav'];
     const pistaElegida = catalogoAudio[Math.floor(Math.random() * catalogoAudio.length)];
 
     bgMusic = new THREE.Audio(listener);
@@ -271,10 +255,7 @@ function crearAudio() {
     cargarSFX(audioLoader, sfxSuccess, 'assets/affects/pinpad.wav', 1.0);
 
     setTimeout(() => {
-        if (mapData) {
-            mapData.sfxPortalB = portalSoundB;
-            mapData.sfxPortalP = portalSoundP;
-        }
+        if (mapData) { mapData.sfxPortalB = portalSoundB; mapData.sfxPortalP = portalSoundP; }
     }, 200);
 }
 
@@ -285,19 +266,9 @@ function cargarSFX(loader, audioObject, ruta, volumen) {
     });
 }
 
-function estaEnVR() {
-    return renderer && renderer.xr && renderer.xr.isPresenting;
-}
-
-function obtenerPosicionPinpad() {
-    if (mapData.pinpadObj) return mapData.pinpadObj.position;
-    return null;
-}
-
-function obtenerPosicionPuerta() {
-    if (mapData.doorPos) return mapData.doorPos;
-    return null;
-}
+function estaEnVR() { return renderer && renderer.xr && renderer.xr.isPresenting; }
+function obtenerPosicionPinpad() { return mapData.pinpadObj ? mapData.pinpadObj.position : null; }
+function obtenerPosicionPuerta() { return mapData.doorPos ? mapData.doorPos : null; }
 
 function intentarInteractuar() {
     if (!mapData || doorOpened) return;
@@ -306,8 +277,8 @@ function intentarInteractuar() {
     const pinpadPos = obtenerPosicionPinpad();
     const puertaPos = obtenerPosicionPuerta();
 
-    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 650;
-    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 650;
+    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 330;
+    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 330;
 
     if (cercaDePinpad) {
         estaEnVR() ? abrirPinpadVR() : abrirPinpadHTML();
@@ -328,7 +299,7 @@ function validarCodigoPinpad() {
         abrirPuerta();
 
         if (estaEnVR()) {
-            actualizarTextoPinpadVR('CÓDIGO ACEPTADO', '#4ade80');
+            actualizarTextoPinpadVR('CÓDIGO ACEPTADO');
             setTimeout(cerrarPinpadVR, 900);
         } else {
             const msg = document.getElementById('pinpad-msg');
@@ -340,11 +311,11 @@ function validarCodigoPinpad() {
         reproducirSonido(sfxError);
 
         if (estaEnVR()) {
-            actualizarTextoPinpadVR('ERROR', '#ff2a5f');
+            actualizarTextoPinpadVR('ERROR');
             actualizarPantallaPinpadVR();
         } else {
             const msg = document.getElementById('pinpad-msg');
-            if (msg) { msg.innerText = 'ERROR CAPA 8'; msg.style.color = '#ff2a5f'; }
+            if (msg) { msg.innerText = 'ERROR'; msg.style.color = '#ff2a5f'; }
             actualizarPantallaPinpadHTML();
         }
     }
@@ -409,7 +380,7 @@ function crearPinpadVR3D() {
     panel.position.z = -2;
     group.add(panel);
 
-    const title = crearTextoPlano('PINPAD', 180, 48, '#38bdf8');
+    const title = crearTextoPlano('PINPAD DE SEGURIDAD', 400, 48, '#38bdf8');
     title.position.set(0, 250, 1);
     group.add(title);
 
@@ -418,7 +389,7 @@ function crearPinpadVR3D() {
     screen.position.set(0, 175, 1);
     group.add(screen);
 
-    const message = crearTextoPlano('A: PRESIONAR | B: CERRAR', 480, 34, '#a0a0b0');
+    const message = crearTextoPlano('BOTÓN A: SELECCIONAR | BOTÓN B: CERRAR', 480, 34, '#a0a0b0');
     message.name = 'VR_PINPAD_MSG';
     message.position.set(0, 125, 1);
     group.add(message);
@@ -427,8 +398,7 @@ function crearPinpadVR3D() {
         ['1', '2', '3'],
         ['4', '5', '6'],
         ['7', '8', '9'],
-        ['C', '0', 'OK'],
-        ['SALIR', 'CERRAR', '']
+        ['C', '0', 'OK']
     ];
 
     vrPinpad.buttons = [];
@@ -528,18 +498,14 @@ function abrirPinpadVR() {
     camera.getWorldQuaternion(camWorldQuat);
     camDir.y = 0; camDir.normalize();
 
-    // Posicionar el pinpad justo enfrente del jugador, a la altura de sus manos
     const pos = camPos.clone().add(camDir.multiplyScalar(120));
     vrPinpad.group.position.set(pos.x, camPos.y - 30, pos.z);
-
-    // Usar el quaternion mundial real de la cámara VR (no el local)
     vrPinpad.group.quaternion.copy(camWorldQuat);
     vrPinpad.group.scale.set(0.15, 0.15, 0.15);
-
     vrPinpad.group.visible = true;
 
     actualizarPantallaPinpadVR();
-    actualizarTextoPinpadVR('A: PRESIONAR | B: CERRAR');
+    actualizarTextoPinpadVR('BOTÓN A: SELECCIONAR | BOTÓN B: CERRAR');
     actualizarSeleccionPinpadVR();
 }
 
@@ -554,9 +520,9 @@ function actualizarPantallaPinpadVR() {
     if (screen) cambiarTextoPlano(screen, currentPin.padEnd(4, '-'), '#ffffff');
 }
 
-function actualizarTextoPinpadVR(texto, color = '#a0a0b0') {
+function actualizarTextoPinpadVR(texto) {
     const msg = vrPinpad.group.getObjectByName('VR_PINPAD_MSG');
-    if (msg) cambiarTextoPlano(msg, texto, color);
+    if (msg) cambiarTextoPlano(msg, texto, '#a0a0b0');
 }
 
 function actualizarSeleccionPinpadVR() {
@@ -586,18 +552,10 @@ function presionarBotonPinpadVR(label) {
     if (label === 'C') {
         currentPin = '';
         actualizarPantallaPinpadVR();
-        actualizarTextoPinpadVR('A: PRESIONAR | B: CERRAR');
+        actualizarTextoPinpadVR('BOTÓN A: SELECCIONAR | BOTÓN B: CERRAR');
         return;
     }
     if (label === 'OK') { validarCodigoPinpad(); return; }
-    if (label === 'CERRAR') { cerrarPinpadVR(); return; }
-    if (label === 'SALIR') {
-        cerrarPinpadHTML(); cerrarPinpadVR();
-        gameStarted = false;
-        if (bgMusic && bgMusic.isPlaying) bgMusic.stop();
-        renderer.xr.getSession()?.end();
-        document.getElementById('start-screen').style.display = 'flex';
-    }
 }
 
 function actualizarPinpadVR(delta) {
@@ -629,7 +587,7 @@ function actualizarPinpadVR(delta) {
 
 function mostrarAlertaPuerta() {
     if (estaEnVR()) {
-        cambiarTextoPlano(vrPrompt, doorOpened ? 'PUERTA ABIERTA' : 'BLOQUEADA. BUSCA EL PIN', '#ff2a5f');
+        cambiarTextoPlano(vrPrompt, doorOpened ? 'PUERTA ABIERTA' : 'LA PUERTA ESTÁ BLOQUEADA. INTRODUCE EL CÓDIGO.', '#ff2a5f');
         vrPrompt.visible = true;
         clearTimeout(alertTimeout);
         alertTimeout = setTimeout(() => { vrPrompt.visible = false; }, 3000);
@@ -657,8 +615,8 @@ function actualizarMensajeInteraccion() {
     const pinpadPos = obtenerPosicionPinpad();
     const puertaPos = obtenerPosicionPuerta();
 
-    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 650;
-    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 650;
+    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 330;
+    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 330;
 
     if (estaEnVR()) {
         if (cercaDePinpad || cercaDePuerta) {
@@ -671,13 +629,10 @@ function actualizarMensajeInteraccion() {
 
             vrPrompt.position.copy(camPos).add(camDir.multiplyScalar(150));
             vrPrompt.position.y -= 25; 
-            
-            const camQuat = new THREE.Quaternion();
-            camera.getWorldQuaternion(camQuat);
-            vrPrompt.quaternion.copy(camQuat);
+            vrPrompt.quaternion.copy(camera.quaternion);
 
-            if (cercaDePinpad) cambiarTextoPlano(vrPrompt, 'GATILLO DERECHO: USAR PINPAD', '#ffcc00');
-            else cambiarTextoPlano(vrPrompt, 'GATILLO DERECHO: REVISAR PUERTA', '#ffcc00');
+            if (cercaDePinpad) cambiarTextoPlano(vrPrompt, 'GATILLO DERECHO: ABRIR PINPAD', '#ffcc00');
+            else cambiarTextoPlano(vrPrompt, 'GATILLO DERECHO: ABRIR PUERTA', '#ffcc00');
         } else {
             vrPrompt.visible = false;
         }
@@ -714,7 +669,7 @@ function animate() {
 
         if (doorOpened && !successTriggered) {
             const distToExit = Math.hypot(playerPos.x - mapData.doorPos.x, playerPos.z - mapData.doorPos.z);
-            if (distToExit < 600) {
+            if (distToExit < 200) {
                 successTriggered = true;
                 if (estaEnVR()) {
                     vrSuccessPrompt.visible = true;
@@ -725,9 +680,7 @@ function animate() {
                     camDir.y = 0; camDir.normalize();
 
                     vrSuccessPrompt.position.copy(camPos).add(camDir.multiplyScalar(150));
-                    const camQuat = new THREE.Quaternion();
-                    camera.getWorldQuaternion(camQuat);
-                    vrSuccessPrompt.quaternion.copy(camQuat);
+                    vrSuccessPrompt.quaternion.copy(camera.quaternion);
                 } else {
                     const successScreen = document.getElementById('success-screen');
                     if (successScreen) {
