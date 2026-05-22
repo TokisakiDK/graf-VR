@@ -443,15 +443,13 @@ function crearTextoPlano(texto, width, height, color) {
     canvas.width = 512; canvas.height = 256;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    
+    // CORRECCIÓN 1: Se eliminó la escala inversa para no crear efecto espejo
     ctx.fillStyle = color;
     ctx.font = 'bold 64px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(texto, canvas.width / 2, canvas.height / 2);
-    ctx.restore();
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -469,15 +467,13 @@ function cambiarTextoPlano(mesh, texto, color = null) {
     const { canvas, context: ctx, texture } = mesh.userData;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    
+    // CORRECCIÓN 2: Actualización de canvas sin efecto espejo
     ctx.fillStyle = color || mesh.userData.color || '#ffffff';
     ctx.font = 'bold 64px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(texto, canvas.width / 2, canvas.height / 2);
-    ctx.restore();
 
     texture.needsUpdate = true;
 }
@@ -492,15 +488,16 @@ function abrirPinpadVR() {
 
     const camPos = new THREE.Vector3();
     const camDir = new THREE.Vector3();
-    const camWorldQuat = new THREE.Quaternion();
     camera.getWorldPosition(camPos);
     camera.getWorldDirection(camDir);
-    camera.getWorldQuaternion(camWorldQuat);
     camDir.y = 0; camDir.normalize();
 
     const pos = camPos.clone().add(camDir.multiplyScalar(120));
     vrPinpad.group.position.set(pos.x, camPos.y - 30, pos.z);
-    vrPinpad.group.quaternion.copy(camWorldQuat);
+    
+    // CORRECCIÓN 3: lookAt asegura que el panel 3D mire directo al jugador, eliminando el giro de 180 grados.
+    vrPinpad.group.lookAt(camPos);
+    
     vrPinpad.group.scale.set(0.15, 0.15, 0.15);
     vrPinpad.group.visible = true;
 
@@ -589,6 +586,12 @@ function mostrarAlertaPuerta() {
     if (estaEnVR()) {
         cambiarTextoPlano(vrPrompt, doorOpened ? 'PUERTA ABIERTA' : 'LA PUERTA ESTÁ BLOQUEADA. INTRODUCE EL CÓDIGO.', '#ff2a5f');
         vrPrompt.visible = true;
+        
+        // Mantenerlo apuntando a la cámara cuando se activa
+        const camPos = new THREE.Vector3();
+        camera.getWorldPosition(camPos);
+        vrPrompt.lookAt(camPos);
+
         clearTimeout(alertTimeout);
         alertTimeout = setTimeout(() => { vrPrompt.visible = false; }, 3000);
     } else {
@@ -629,7 +632,9 @@ function actualizarMensajeInteraccion() {
 
             vrPrompt.position.copy(camPos).add(camDir.multiplyScalar(150));
             vrPrompt.position.y -= 25; 
-            vrPrompt.quaternion.copy(camera.quaternion);
+            
+            // CORRECCIÓN 4: lookAt para los avisos flotantes.
+            vrPrompt.lookAt(camPos);
 
             if (cercaDePinpad) cambiarTextoPlano(vrPrompt, 'GATILLO DERECHO: ABRIR PINPAD', '#ffcc00');
             else cambiarTextoPlano(vrPrompt, 'GATILLO DERECHO: ABRIR PUERTA', '#ffcc00');
@@ -680,7 +685,9 @@ function animate() {
                     camDir.y = 0; camDir.normalize();
 
                     vrSuccessPrompt.position.copy(camPos).add(camDir.multiplyScalar(150));
-                    vrSuccessPrompt.quaternion.copy(camera.quaternion);
+                    
+                    // CORRECCIÓN 5: Pantalla final de escape orientada correctamente.
+                    vrSuccessPrompt.lookAt(camPos);
                 } else {
                     const successScreen = document.getElementById('success-screen');
                     if (successScreen) {
