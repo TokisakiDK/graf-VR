@@ -15,13 +15,12 @@ export let isAerialView = false;
 
 const keys = { w: false, a: false, s: false, d: false, shift: false };
 
-// Velocidades ajustadas para el mapa doblemente grande
 const config = {
     eyeHeight: 175, radius: 80, walkSpeed: 380, runSpeed: 750, turnSpeedPC: 2.5, turnSpeedVR: 2.4, deadzone: 0.18
 };
 
 const vrInput = {
-    leftX: 0, leftY: 0, rightX: 0, running: false,
+    leftX: 0, leftY: 0, rightX: 0, rightY: 0, running: false,
     interactNow: false, interactPrev: false, interactConsumed: false,
     confirmNow: false, confirmPrev: false, confirmConsumed: false,
     cancelNow: false, cancelPrev: false, cancelConsumed: false
@@ -37,7 +36,6 @@ export function initPlayer(scene, spawnPosition, renderer, camera) {
     vrRig.position.set(spawnPosition.x, config.eyeHeight, spawnPosition.z);
     scene.add(vrRig);
 
-    // --- RESTAURANDO AL PERSONAJE PARA PC (3RA PERSONA) ---
     const loader = new FBXLoader(THREE.DefaultLoadingManager);
     loader.load('player/Idle.fbx', (fbx) => {
         character = fbx;
@@ -75,8 +73,8 @@ export function initPlayer(scene, spawnPosition, renderer, camera) {
     renderer.xr.addEventListener('sessionstart', () => { 
         isVR = true; 
         resetVRInput();
-        if (character) character.visible = false; // Oculta el FBX en VR
-        vrRig.add(camera); // Cámara a VR Rig
+        if (character) character.visible = false; 
+        vrRig.add(camera); 
         camera.position.set(0, 0, 0);
         camera.rotation.set(0, 0, 0);
         vrRig.position.set(playerPosition.x, config.eyeHeight, playerPosition.z);
@@ -85,8 +83,8 @@ export function initPlayer(scene, spawnPosition, renderer, camera) {
     renderer.xr.addEventListener('sessionend', () => { 
         isVR = false; 
         resetVRInput(); 
-        if (character) character.visible = true; // Muestra el FBX en PC
-        vrRig.remove(camera); // Cámara libre para PC
+        if (character) character.visible = true; 
+        vrRig.remove(camera); 
     });
 }
 
@@ -94,7 +92,7 @@ export function getPlayerPosition() {
     return playerPosition.clone();
 }
 
-export function getVRNavAxes() { return { x: vrInput.leftX, y: vrInput.leftY }; }
+export function getVRNavAxesRight() { return { x: vrInput.rightX, y: vrInput.rightY }; }
 
 export function consumeVRInteractPressed() {
     const justPressed = vrInput.interactNow && !vrInput.interactPrev && !vrInput.interactConsumed;
@@ -138,17 +136,16 @@ function crossFade(nextAction) {
 }
 
 function resetVRInput() {
-    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.running = false;
+    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.rightY = 0; vrInput.running = false;
     vrInput.interactNow = false; vrInput.interactPrev = false; vrInput.interactConsumed = false;
     vrInput.confirmNow = false; vrInput.confirmPrev = false; vrInput.confirmConsumed = false;
     vrInput.cancelNow = false; vrInput.cancelPrev = false; vrInput.cancelConsumed = false;
 }
 
 function readVRControls(renderer) {
-    vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.running = false;
     vrInput.interactPrev = vrInput.interactNow; vrInput.confirmPrev = vrInput.confirmNow; vrInput.cancelPrev = vrInput.cancelNow;
     vrInput.interactNow = false; vrInput.confirmNow = false; vrInput.cancelNow = false;
-    vrInput.interactConsumed = false; vrInput.confirmConsumed = false; vrInput.cancelConsumed = false;
+    vrInput.running = false; vrInput.leftX = 0; vrInput.leftY = 0; vrInput.rightX = 0; vrInput.rightY = 0;
 
     const session = renderer.xr.getSession();
     if (!session) return;
@@ -167,14 +164,15 @@ function readVRControls(renderer) {
         if (handedness === 'left') {
             vrInput.leftX = applyDeadzone(stick.x);
             vrInput.leftY = applyDeadzone(stick.y);
-            vrInput.running = isButtonPressed(buttons, 0) || isButtonPressed(buttons, 1);
+            vrInput.running = isButtonPressed(buttons, 0); // Gatillo Izquierdo = Correr
         }
 
         if (handedness === 'right') {
             vrInput.rightX = applyDeadzone(stick.x);
-            vrInput.interactNow = isButtonPressed(buttons, 0) || isButtonPressed(buttons, 1);
-            vrInput.confirmNow = isButtonPressed(buttons, 4);
-            vrInput.cancelNow = isButtonPressed(buttons, 5);
+            vrInput.rightY = applyDeadzone(stick.y);
+            vrInput.interactNow = isButtonPressed(buttons, 0); // Gatillo Derecho = Interactuar
+            vrInput.confirmNow = isButtonPressed(buttons, 4);  // Botón A = Seleccionar UI
+            vrInput.cancelNow = isButtonPressed(buttons, 5);   // Botón B = Salir UI
         }
     }
 }
@@ -281,7 +279,6 @@ function updatePCMovement(delta, mapData, camera) {
 
     playerPosition.set(character.position.x, 0, character.position.z);
 
-    // Cámara en 3ra persona con Raycaster anti-paredes
     const playerHead = character.position.clone().add(new THREE.Vector3(0, 150, 0));
     const zIdeal = keys.s ? -120 : -320; 
     const yIdeal = keys.s ? 160 : 180;
@@ -330,6 +327,29 @@ function hayColision(futuraX, futuraZ, mapData) {
         mapData.grid[filaAbajo][colIzquierda], mapData.grid[filaAbajo][colDerecha]
     ];
     return esquinas.some((valor) => valor === 1 || valor === 5 || valor === 2);
+}
+
+function chocaConObstaculo(x, z, mapData) {
+    const playerBox = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(x, config.eyeHeight / 2, z),
+        new THREE.Vector3(70, config.eyeHeight, 70)
+    );
+
+    for (const obstacle of mapData.obstacles) {
+        if (!obstacle || obstacle.isInstancedMesh) continue;
+
+        let obstacleBox;
+        if (obstacle.boundingBox) {
+            obstacle.updateMatrixWorld(true);
+            obstacle.boundingBox.setFromObject(obstacle);
+            obstacleBox = obstacle.boundingBox;
+        } else {
+            obstacle.updateMatrixWorld(true);
+            obstacleBox = new THREE.Box3().setFromObject(obstacle);
+        }
+        if (playerBox.intersectsBox(obstacleBox)) return true;
+    }
+    return false;
 }
 
 function updatePortals(delta, mapData) {

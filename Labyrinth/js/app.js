@@ -2,14 +2,13 @@ import * as THREE from 'three';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 
-// Rutas limpias, sin ?v=40 para no romper GitHub Pages
 import { construirMundo, iniciarVideosLaberinto } from './Labyrinth.js';
 import {
     consumeVRCancelPressed,
     consumeVRConfirmPressed,
     consumeVRInteractPressed,
     getPlayerPosition,
-    getVRNavAxes,
+    getVRNavAxesRight,
     initPlayer,
     updatePlayer
 } from './Player.js';
@@ -43,7 +42,6 @@ function init() {
     prepararPantallaCargaSegura();
 
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0xdbeafe, 0.00032);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
 
@@ -75,7 +73,6 @@ function init() {
 
     crearPinpadVR3D();
     
-    // UI VR con renderOrder alto para no traspasar muros
     vrPrompt = crearTextoPlano('', 700, 80, '#ffcc00', 995);
     vrPrompt.visible = false;
     scene.add(vrPrompt);
@@ -108,7 +105,7 @@ function init() {
 }
 
 function prepararPantallaCargaSegura() {
-    const fallbackTimer = setTimeout(() => mostrarPantallaInicio(), 10000);
+    const fallbackTimer = setTimeout(() => mostrarPantallaInicio(), 12000);
 
     THREE.DefaultLoadingManager.onProgress = function (url, itemsLoaded, itemsTotal) {
         const progress = itemsTotal > 0 ? (itemsLoaded / itemsTotal) * 100 : 100;
@@ -205,7 +202,6 @@ function configurarPinpadHTML() {
 }
 
 function cargarCielo() {
-    // RUTAS SEGURAS PARA GITHUB PAGES (Sin ../)
     const catalogoCielos = [
         'assets/sky/sky_1.hdr', 'assets/sky/sky_2.hdr', 'assets/sky/sky_3.hdr', 'assets/sky/sky_4.hdr'
     ];
@@ -304,9 +300,8 @@ function intentarInteractuar() {
     const pinpadPos = obtenerPosicionPinpad();
     const puertaPos = obtenerPosicionPuerta();
 
-    // Rango extendido a 700 porque los pasillos ahora miden 500 de ancho
-    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 700;
-    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 700;
+    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 500;
+    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 500;
 
     if (cercaDePinpad) {
         estaEnVR() ? abrirPinpadVR() : abrirPinpadHTML();
@@ -410,7 +405,6 @@ function crearTextoPlano(texto, width, height, color, renderOrder = 990) {
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
 
-    // PROFUNDIDAD DESACTIVADA PARA QUE NO SE HUNDA EN EL MURO
     const mesh = new THREE.Mesh(
         new THREE.PlaneGeometry(width, height),
         new THREE.MeshBasicMaterial({ 
@@ -453,7 +447,7 @@ function crearPinpadVR3D() {
     screen.position.set(0, 175, 1);
     group.add(screen);
 
-    const message = crearTextoPlano('A: PRESIONAR | B: CERRAR', 480, 34, '#a0a0b0', 992);
+    const message = crearTextoPlano('BOTÓN A: ELEGIR | B: CERRAR', 480, 34, '#a0a0b0', 992);
     message.name = 'VR_PINPAD_MSG';
     message.position.set(0, 125, 1);
     group.add(message);
@@ -537,16 +531,15 @@ function abrirPinpadVR() {
     camera.getWorldDirection(camDir);
     camDir.y = 0; camDir.normalize();
 
-    const pos = camPos.clone().add(camDir.multiplyScalar(100));
+    const pos = camPos.clone().add(camDir.multiplyScalar(80));
     vrPinpad.group.position.set(pos.x, camPos.y - 10, pos.z);
     
-    // TEXTO SIEMPRE AL DERECHO APUNTANDO A LA CÁMARA
     vrPinpad.group.quaternion.copy(camera.quaternion);
     vrPinpad.group.scale.set(0.12, 0.12, 0.12);
     vrPinpad.group.visible = true;
 
     actualizarPantallaPinpadVR();
-    actualizarTextoPinpadVR('A: PRESIONAR | B: CERRAR');
+    actualizarTextoPinpadVR('BOTÓN A: ELEGIR | B: CERRAR');
     actualizarSeleccionPinpadVR();
 }
 
@@ -593,7 +586,7 @@ function presionarBotonPinpadVR(label) {
     if (label === 'C') {
         currentPin = '';
         actualizarPantallaPinpadVR();
-        actualizarTextoPinpadVR('A: PRESIONAR | B: CERRAR');
+        actualizarTextoPinpadVR('BOTÓN A: ELEGIR | B: CERRAR');
         return;
     }
     if (label === 'OK') { validarCodigoPinpad(); return; }
@@ -611,14 +604,14 @@ function actualizarPinpadVR(delta) {
     if (!vrPinpad.open) return;
     vrPinpad.navCooldown -= delta;
 
-    const axes = getVRNavAxes();
+    const axes = getVRNavAxesRight(); // Usamos joystick derecho para navegar
     const cols = 3;
 
     if (vrPinpad.navCooldown <= 0) {
-        if (axes.x > 0.55) { vrPinpad.selectedIndex += 1; vrPinpad.navCooldown = 0.22; } 
-        else if (axes.x < -0.55) { vrPinpad.selectedIndex -= 1; vrPinpad.navCooldown = 0.22; } 
-        else if (axes.y > 0.55) { vrPinpad.selectedIndex += cols; vrPinpad.navCooldown = 0.22; } 
-        else if (axes.y < -0.55) { vrPinpad.selectedIndex -= cols; vrPinpad.navCooldown = 0.22; }
+        if (axes.x > 0.5) { vrPinpad.selectedIndex += 1; vrPinpad.navCooldown = 0.22; } 
+        else if (axes.x < -0.5) { vrPinpad.selectedIndex -= 1; vrPinpad.navCooldown = 0.22; } 
+        else if (axes.y > 0.5) { vrPinpad.selectedIndex += cols; vrPinpad.navCooldown = 0.22; } 
+        else if (axes.y < -0.5) { vrPinpad.selectedIndex -= cols; vrPinpad.navCooldown = 0.22; }
 
         if (vrPinpad.selectedIndex < 0) vrPinpad.selectedIndex = 0;
         if (vrPinpad.selectedIndex >= vrPinpad.buttons.length) vrPinpad.selectedIndex = vrPinpad.buttons.length - 1;
@@ -626,12 +619,12 @@ function actualizarPinpadVR(delta) {
         actualizarSeleccionPinpadVR();
     }
 
-    if (consumeVRConfirmPressed()) {
+    if (consumeVRConfirmPressed()) { // Botón A presionado
         const button = vrPinpad.buttons[vrPinpad.selectedIndex];
         if (button) presionarBotonPinpadVR(button.userData.label);
     }
 
-    if (consumeVRCancelPressed()) cerrarPinpadVR();
+    if (consumeVRCancelPressed()) cerrarPinpadVR(); // Botón B presionado
 }
 
 function mostrarAlertaPuerta() {
@@ -664,8 +657,8 @@ function actualizarMensajeInteraccion() {
     const pinpadPos = obtenerPosicionPinpad();
     const puertaPos = obtenerPosicionPuerta();
 
-    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 700;
-    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 700;
+    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 500;
+    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 500;
 
     if (estaEnVR()) {
         if (cercaDePinpad || cercaDePuerta) {
@@ -679,11 +672,10 @@ function actualizarMensajeInteraccion() {
             vrPrompt.position.copy(camPos).add(camDir.multiplyScalar(100));
             vrPrompt.position.y -= 15; 
             
-            // TEXTO SIEMPRE AL DERECHO
             vrPrompt.quaternion.copy(camera.quaternion);
 
-            if (cercaDePinpad) cambiarTextoPlano(vrPrompt, 'GATILLO DCHO: USAR PINPAD', '#ffcc00');
-            else cambiarTextoPlano(vrPrompt, 'GATILLO DCHO: REVISAR PUERTA', '#ffcc00');
+            if (cercaDePinpad) cambiarTextoPlano(vrPrompt, 'GATILLO DER: USAR PINPAD', '#ffcc00');
+            else cambiarTextoPlano(vrPrompt, 'GATILLO DER: REVISAR PUERTA', '#ffcc00');
         } else {
             vrPrompt.visible = false;
         }
@@ -712,6 +704,7 @@ function animate() {
         actualizarPinpadVR(delta);
         actualizarMensajeInteraccion();
 
+        // GATILLO DERECHO para interactuar
         if (!isUIOpen && consumeVRInteractPressed()) {
             intentarInteractuar();
         }
@@ -720,7 +713,7 @@ function animate() {
 
         if (doorOpened && !successTriggered) {
             const distToExit = Math.hypot(playerPos.x - mapData.doorPos.x, playerPos.z - mapData.doorPos.z);
-            if (distToExit < 400) {
+            if (distToExit < 300) {
                 successTriggered = true;
                 if (estaEnVR()) {
                     vrSuccessPrompt.visible = true;
