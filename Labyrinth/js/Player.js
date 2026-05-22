@@ -37,7 +37,9 @@ export function initPlayer(scene, spawnPosition, renderer, camera) {
     scene.add(vrRig);
 
     const loader = new FBXLoader(THREE.DefaultLoadingManager);
-    loader.load('player/Idle.fbx', (fbx) => {
+    
+    // IMPORTANTE: Se añade '../' porque Player.js está en la carpeta /js/
+    loader.load('../player/Idle.fbx', (fbx) => {
         character = fbx;
         character.scale.set(1, 1, 1);
         character.position.set(spawnPosition.x, 0, spawnPosition.z);
@@ -46,10 +48,10 @@ export function initPlayer(scene, spawnPosition, renderer, camera) {
         mixer = new THREE.AnimationMixer(character);
         idleAction = mixer.clipAction(character.animations[0]);
 
-        loader.load('player/Walking.fbx', (f) => walkAction = mixer.clipAction(f.animations[0]));
-        loader.load('player/Walking Backwards.fbx', (f) => walkBackAction = mixer.clipAction(f.animations[0]));
-        loader.load('player/Running.fbx', (f) => runAction = mixer.clipAction(f.animations[0]));
-        loader.load('player/Run Backward.fbx', (f) => runBackAction = mixer.clipAction(f.animations[0]));
+        loader.load('../player/Walking.fbx', (f) => walkAction = mixer.clipAction(f.animations[0]));
+        loader.load('../player/Walking Backwards.fbx', (f) => walkBackAction = mixer.clipAction(f.animations[0]));
+        loader.load('../player/Running.fbx', (f) => runAction = mixer.clipAction(f.animations[0]));
+        loader.load('../player/Run Backward.fbx', (f) => runBackAction = mixer.clipAction(f.animations[0]));
 
         currentAction = idleAction;
         currentAction.play();
@@ -164,15 +166,15 @@ function readVRControls(renderer) {
         if (handedness === 'left') {
             vrInput.leftX = applyDeadzone(stick.x);
             vrInput.leftY = applyDeadzone(stick.y);
-            vrInput.running = isButtonPressed(buttons, 0); // Gatillo Izquierdo = Correr
+            vrInput.running = isButtonPressed(buttons, 0); 
         }
 
         if (handedness === 'right') {
             vrInput.rightX = applyDeadzone(stick.x);
             vrInput.rightY = applyDeadzone(stick.y);
-            vrInput.interactNow = isButtonPressed(buttons, 0); // Gatillo Derecho = Interactuar
-            vrInput.confirmNow = isButtonPressed(buttons, 4);  // Botón A = Seleccionar UI
-            vrInput.cancelNow = isButtonPressed(buttons, 5);   // Botón B = Salir UI
+            vrInput.interactNow = isButtonPressed(buttons, 0); 
+            vrInput.confirmNow = isButtonPressed(buttons, 4);  
+            vrInput.cancelNow = isButtonPressed(buttons, 5);   
         }
     }
 }

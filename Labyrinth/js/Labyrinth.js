@@ -52,8 +52,6 @@ function randomSeguro() {
     return Math.random();
 }
 
-// ALGORITMO MAGNÍFICO: Convierte tu matriz 15x15 en 22x22 sin romper el laberinto
-// Duplica los pasillos (casillas vacías) y mantiene los muros delgados.
 function expandirMatrix(mapa) {
     const res = [];
     for (let r = 0; r < mapa.length; r++) {
@@ -61,16 +59,16 @@ function expandirMatrix(mapa) {
         for (let c = 0; c < mapa[r].length; c++) {
             let v = mapa[r][c];
             row1.push(v);
-            if (c % 2 !== 0) { // Expandir columnas impares (pasillos)
+            if (c % 2 !== 0) { 
                 if (v === 1) row1.push(1); 
-                else if (v === 5) row1.push(1); // El pinpad no se duplica, se convierte en muro continuo
-                else if (v === 2) row1.push(0); // La puerta se escalará para tapar las 2 casillas
+                else if (v === 5) row1.push(1); 
+                else if (v === 2) row1.push(0); 
                 else row1.push(0); 
             }
         }
         res.push(row1);
 
-        if (r % 2 !== 0) { // Expandir filas impares (pasillos)
+        if (r % 2 !== 0) { 
             let row2 = [];
             for (let c = 0; c < mapa[r].length; c++) {
                 let v = mapa[r][c];
@@ -96,7 +94,7 @@ export function construirMundo(scene) {
         obstacles: [], portalsArray: [], linkedPortals: [], randomPortals: [], safeSpots: [],
         spawnPosition: new THREE.Vector3(), escapeDoor: null, doorPos: new THREE.Vector3(),
         doorBarrier: null, doorGridIndex: null, pinpadObj: null, codigoSecreto: [], grid: [],
-        tileSize: 250, offset: 0, mapName: '', mapIndex: 0, mapTexture: '' 
+        tileSize: 500, offset: 0, mapName: '', mapIndex: 0, mapTexture: ''
     };
 
     const glifosPosibles = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -104,6 +102,15 @@ export function construirMundo(scene) {
         const index = Math.floor(randomSeguro() * glifosPosibles.length);
         mapState.codigoSecreto.push(glifosPosibles.splice(index, 1)[0]);
     }
+
+    const tileSize = 500;
+    const alturaMuro = 700;
+    
+    // IMPORTANTE: Se añade '../' porque Labyrinth.js está en la carpeta /js/
+    const floorTex = texLoader.load('../assets/Alfombra.jpg');
+    floorTex.wrapS = THREE.RepeatWrapping;
+    floorTex.wrapT = THREE.RepeatWrapping;
+    floorTex.repeat.set(30, 30); 
 
     const mapa1 = [
         [1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1],
@@ -187,14 +194,23 @@ export function construirMundo(scene) {
     const mapIndex = Math.floor(randomSeguro() * catalogoMapas.length);
     const mapSelection = catalogoMapas[mapIndex];
     
-    // APLICAR EXPANSIÓN: Pasillos miden el doble sin romper tu lógica original
     const mapa = expandirMatrix(mapSelection.grid);
 
-    const tileSize = 250;
     const offset = (mapa.length * tileSize) / 2;
     const tamanoMapa = mapa.length * tileSize;
 
-    const texMuro = texLoader.load('assets/' + mapSelection.texture);
+    const floorMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(tamanoMapa, tamanoMapa),
+        new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 })
+    );
+
+    floorMesh.rotation.x = -Math.PI / 2;
+    floorMesh.position.set(-250, 0, -250); 
+    floorMesh.receiveShadow = true;
+    scene.add(floorMesh);
+
+    // IMPORTANTE: Se añade '../' porque Labyrinth.js está en la carpeta /js/
+    const texMuro = texLoader.load('../assets/' + mapSelection.texture);
     texMuro.wrapS = THREE.RepeatWrapping;
     texMuro.wrapT = THREE.RepeatWrapping;
     texMuro.repeat.set(1, 1);
@@ -202,36 +218,24 @@ export function construirMundo(scene) {
     const matMuroTapiz = new THREE.MeshStandardMaterial({ map: texMuro, roughness: 0.8 });
 
     const matPortalB = new THREE.MeshBasicMaterial({
-        map: crearTexturaDeVideo('assets/portal_b.webm'), transparent: true, side: THREE.DoubleSide
+        map: crearTexturaDeVideo('../assets/portal_b.webm'), transparent: true, side: THREE.DoubleSide
     });
     const matPortalP = new THREE.MeshBasicMaterial({
-        map: crearTexturaDeVideo('assets/portal_p.webm'), transparent: true, side: THREE.DoubleSide
+        map: crearTexturaDeVideo('../assets/portal_p.webm'), transparent: true, side: THREE.DoubleSide
     });
 
     const geomPortal = new THREE.PlaneGeometry(200, 200);
+
     mapState.grid = mapa;
     mapState.offset = offset;
 
-    const floorTex = texLoader.load('assets/Alfombra.jpg');
-    floorTex.wrapS = THREE.RepeatWrapping;
-    floorTex.wrapT = THREE.RepeatWrapping;
-    floorTex.repeat.set(20, 20); 
-
-    const floorMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(tamanoMapa, tamanoMapa),
-        new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 })
-    );
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.set(-125, 0, -125); // Ajuste fino del centro
-    floorMesh.receiveShadow = true;
-    scene.add(floorMesh);
-
-    const geomMuro = new THREE.BoxGeometry(tileSize, 350, tileSize);
+    const geomMuro = new THREE.BoxGeometry(tileSize, alturaMuro, tileSize);
 
     let spawnPositionSet = false;
     const paredesDisponibles = [];
 
-    const catalogoDecoraciones = ['models/cactus_maceta.glb', 'models/maceta.glb'];
+    // IMPORTANTE: Se añade '../' porque Labyrinth.js está en la carpeta /js/
+    const catalogoDecoraciones = ['../models/cactus_maceta.glb', '../models/maceta.glb'];
 
     const cargarPropEscena = (ruta, config) => {
         gltfLoader.load(ruta, (gltf) => {
@@ -304,24 +308,23 @@ export function construirMundo(scene) {
                 if (valor === 5) {
                     let pRotY = 0, pOffsetZ = 0, pOffsetX = 0;
 
-                    if (mapa[f + 1] && mapa[f + 1][c] === 0) { pRotY = 0; pOffsetZ = 125; } 
-                    else if (mapa[f - 1] && mapa[f - 1][c] === 0) { pRotY = Math.PI; pOffsetZ = -125; } 
-                    else if (mapa[f][c + 1] === 0) { pRotY = Math.PI / 2; pOffsetX = 125; } 
-                    else if (mapa[f][c - 1] === 0) { pRotY = -Math.PI / 2; pOffsetX = -125; }
+                    if (mapa[f + 1] && mapa[f + 1][c] === 0) { pRotY = 0; pOffsetZ = 250; } 
+                    else if (mapa[f - 1] && mapa[f - 1][c] === 0) { pRotY = Math.PI; pOffsetZ = -250; } 
+                    else if (mapa[f][c + 1] === 0) { pRotY = Math.PI / 2; pOffsetX = 250; } 
+                    else if (mapa[f][c - 1] === 0) { pRotY = -Math.PI / 2; pOffsetX = -250; }
 
-                    cargarPropEscena('models/pinpad.glb', {
+                    cargarPropEscena('../models/pinpad.glb', {
                         escala: 3.5, x: posX + pOffsetX, y: 150, z: posZ + pOffsetZ, rotY: pRotY,
                         onLoad: (mesh) => { mapState.pinpadObj = mesh; },
                         isObstacle: false
                     });
                 } else {
-                    if (mapa[f + 1] && mapa[f + 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ + 125, rotY: 0, isFloor: false });
-                    if (mapa[f - 1] && mapa[f - 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ - 125, rotY: Math.PI, isFloor: false });
-                    if (mapa[f][c + 1] === 0) paredesDisponibles.push({ x: posX + 125, z: posZ, rotY: -Math.PI / 2, isFloor: false });
-                    if (mapa[f][c - 1] === 0) paredesDisponibles.push({ x: posX - 125, z: posZ, rotY: Math.PI / 2, isFloor: false });
+                    if (mapa[f + 1] && mapa[f + 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ + 250, rotY: 0, isFloor: false });
+                    if (mapa[f - 1] && mapa[f - 1][c] === 0) paredesDisponibles.push({ x: posX, z: posZ - 250, rotY: Math.PI, isFloor: false });
+                    if (mapa[f][c + 1] === 0) paredesDisponibles.push({ x: posX + 250, z: posZ, rotY: -Math.PI / 2, isFloor: false });
+                    if (mapa[f][c - 1] === 0) paredesDisponibles.push({ x: posX - 250, z: posZ, rotY: Math.PI / 2, isFloor: false });
                 }
             } else if (valor === 2) {
-                // Centramos puerta en el pasillo doble sumando 125
                 mapState.doorPos.set(posX + 125, 0, posZ + 125);
                 mapState.doorGridIndex = { r: f, c: c };
 
@@ -333,8 +336,7 @@ export function construirMundo(scene) {
                 else if (mapa[f][c - 1] === 0) { dRotY = Math.PI / 2; dOffsetX += pushDoor; } 
                 else if (mapa[f][c + 1] === 0) { dRotY = -Math.PI / 2; dOffsetX -= pushDoor; }
 
-                // Escala de puerta aumentada a 3.8 para tapar el doble pasillo
-                cargarPropEscena('models/door.glb', {
+                cargarPropEscena('../models/door.glb', {
                     escala: 3.8, x: posX + dOffsetX, y: 0, z: posZ + dOffsetZ, rotY: dRotY, alignGround: true,
                     onLoad: (mesh) => { mapState.escapeDoor = mesh; },
                     isObstacle: false
@@ -346,7 +348,6 @@ export function construirMundo(scene) {
                 mapState.obstacles.push(doorBarrier);
                 mapState.doorBarrier = doorBarrier;
             } else if (valor === 8) {
-                // Centramos portal en pasillo doble
                 mapState.linkedPortals.push(new THREE.Vector3(posX + 125, 0, posZ + 125));
                 const p = new THREE.Mesh(geomPortal, matPortalB);
                 p.position.set(posX + 125, 100, posZ + 125);
@@ -359,7 +360,6 @@ export function construirMundo(scene) {
                 scene.add(p);
                 mapState.portalsArray.push(p);
             } else if (valor === 0) {
-                // Evita spawnear 4 veces por pasillo
                 if (!spawnPositionSet && (c % 2 !== 0 && r % 2 !== 0)) {
                     mapState.spawnPosition.set(posX + 125, 0, posZ + 125);
                     spawnPositionSet = true;
@@ -428,8 +428,7 @@ export function construirMundo(scene) {
     for (let i = 0; i < paredesDisponibles.length; i++) {
         const data = paredesDisponibles[i];
         if (!data.isFloor && randomSeguro() > 0.50 && cuadrosGenerados < 30) {
-            // MARCOS 10x MÁS GRANDES
-            cargarPropEscena('models/cuadro.glb', {
+            cargarPropEscena('../models/cuadro.glb', {
                 escala: 14.0, x: data.x, y: 220, z: data.z, rotY: data.rotY, isObstacle: false
             });
             cuadrosGenerados++;

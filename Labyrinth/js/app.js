@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 
+// Las importaciones de módulos hermanos en la misma carpeta no cambian
 import { construirMundo, iniciarVideosLaberinto } from './Labyrinth.js';
 import {
     consumeVRCancelPressed,
@@ -42,6 +43,7 @@ function init() {
     prepararPantallaCargaSegura();
 
     scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0xdbeafe, 0.00032);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
 
@@ -105,7 +107,7 @@ function init() {
 }
 
 function prepararPantallaCargaSegura() {
-    const fallbackTimer = setTimeout(() => mostrarPantallaInicio(), 12000);
+    const fallbackTimer = setTimeout(() => mostrarPantallaInicio(), 15000); // Tiempo extendido para GitHub Pages
 
     THREE.DefaultLoadingManager.onProgress = function (url, itemsLoaded, itemsTotal) {
         const progress = itemsTotal > 0 ? (itemsLoaded / itemsTotal) * 100 : 100;
@@ -202,8 +204,9 @@ function configurarPinpadHTML() {
 }
 
 function cargarCielo() {
+    // IMPORTANTE: Se añade '../' porque app.js está en la carpeta /js/
     const catalogoCielos = [
-        'assets/sky/sky_1.hdr', 'assets/sky/sky_2.hdr', 'assets/sky/sky_3.hdr', 'assets/sky/sky_4.hdr'
+        '../assets/sky/sky_1.hdr', '../assets/sky/sky_2.hdr', '../assets/sky/sky_3.hdr', '../assets/sky/sky_4.hdr'
     ];
     const cieloElegido = catalogoCielos[Math.floor(Math.random() * catalogoCielos.length)];
     const rgbeLoader = new RGBELoader(THREE.DefaultLoadingManager);
@@ -239,8 +242,9 @@ function crearAudio() {
     camera.add(listener);
     const audioLoader = new THREE.AudioLoader(THREE.DefaultLoadingManager);
 
+    // IMPORTANTE: Se añade '../' porque app.js está en la carpeta /js/
     const catalogoAudio = [
-        'assets/bgm/dreamcore.wav', 'assets/bgm/dreamcore_2.wav', 'assets/bgm/dreamcore_3.wav', 'assets/bgm/dreamcore_4.wav'
+        '../assets/bgm/dreamcore.wav', '../assets/bgm/dreamcore_2.wav', '../assets/bgm/dreamcore_3.wav', '../assets/bgm/dreamcore_4.wav'
     ];
     const pistaElegida = catalogoAudio[Math.floor(Math.random() * catalogoAudio.length)];
 
@@ -258,11 +262,11 @@ function crearAudio() {
     sfxError = new THREE.Audio(listener);
     sfxSuccess = new THREE.Audio(listener);
 
-    cargarSFX(audioLoader, portalSoundB, 'assets/affects/portal_b.wav', 0.8);
-    cargarSFX(audioLoader, portalSoundP, 'assets/affects/portal_p.wav', 0.8);
-    cargarSFX(audioLoader, sfxPin, 'assets/affects/pin.wav', 1.0);
-    cargarSFX(audioLoader, sfxError, 'assets/affects/error.wav', 1.0);
-    cargarSFX(audioLoader, sfxSuccess, 'assets/affects/pinpad.wav', 1.0);
+    cargarSFX(audioLoader, portalSoundB, '../assets/affects/portal_b.wav', 0.8);
+    cargarSFX(audioLoader, portalSoundP, '../assets/affects/portal_p.wav', 0.8);
+    cargarSFX(audioLoader, sfxPin, '../assets/affects/pin.wav', 1.0);
+    cargarSFX(audioLoader, sfxError, '../assets/affects/error.wav', 1.0);
+    cargarSFX(audioLoader, sfxSuccess, '../assets/affects/pinpad.wav', 1.0);
 
     setTimeout(() => {
         if (mapData) {
@@ -300,8 +304,8 @@ function intentarInteractuar() {
     const pinpadPos = obtenerPosicionPinpad();
     const puertaPos = obtenerPosicionPuerta();
 
-    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 500;
-    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 500;
+    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 700;
+    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 700;
 
     if (cercaDePinpad) {
         estaEnVR() ? abrirPinpadVR() : abrirPinpadHTML();
@@ -604,7 +608,7 @@ function actualizarPinpadVR(delta) {
     if (!vrPinpad.open) return;
     vrPinpad.navCooldown -= delta;
 
-    const axes = getVRNavAxesRight(); // Usamos joystick derecho para navegar
+    const axes = getVRNavAxesRight(); 
     const cols = 3;
 
     if (vrPinpad.navCooldown <= 0) {
@@ -619,12 +623,12 @@ function actualizarPinpadVR(delta) {
         actualizarSeleccionPinpadVR();
     }
 
-    if (consumeVRConfirmPressed()) { // Botón A presionado
+    if (consumeVRConfirmPressed()) { 
         const button = vrPinpad.buttons[vrPinpad.selectedIndex];
         if (button) presionarBotonPinpadVR(button.userData.label);
     }
 
-    if (consumeVRCancelPressed()) cerrarPinpadVR(); // Botón B presionado
+    if (consumeVRCancelPressed()) cerrarPinpadVR(); 
 }
 
 function mostrarAlertaPuerta() {
@@ -657,8 +661,8 @@ function actualizarMensajeInteraccion() {
     const pinpadPos = obtenerPosicionPinpad();
     const puertaPos = obtenerPosicionPuerta();
 
-    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 500;
-    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 500;
+    const cercaDePinpad = pinpadPos && playerPos.distanceTo(pinpadPos) < 700;
+    const cercaDePuerta = puertaPos && playerPos.distanceTo(puertaPos) < 700;
 
     if (estaEnVR()) {
         if (cercaDePinpad || cercaDePuerta) {
@@ -704,7 +708,6 @@ function animate() {
         actualizarPinpadVR(delta);
         actualizarMensajeInteraccion();
 
-        // GATILLO DERECHO para interactuar
         if (!isUIOpen && consumeVRInteractPressed()) {
             intentarInteractuar();
         }
@@ -713,7 +716,7 @@ function animate() {
 
         if (doorOpened && !successTriggered) {
             const distToExit = Math.hypot(playerPos.x - mapData.doorPos.x, playerPos.z - mapData.doorPos.z);
-            if (distToExit < 300) {
+            if (distToExit < 400) {
                 successTriggered = true;
                 if (estaEnVR()) {
                     vrSuccessPrompt.visible = true;
