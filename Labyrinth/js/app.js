@@ -30,6 +30,7 @@ let pinpadObject;
 
 let exitSign = null;
 let endScreen = null;
+let victoryPanel = null;
 
 let portalCooldown = 0;
 let randomPortalsP = [];
@@ -52,26 +53,27 @@ let pinpadOpen = false;
 let desktopAvatar;
 let codeCluesGroup;
 
+let sharedPortalTextures = {};
+
 const DOOR_TARGET_HEIGHT = 2.35;
 const PINPAD_TARGET_HEIGHT = 0.62;
 
 const DOOR_COLLISION_RADIUS = 0.02;
 const PINPAD_COLLISION_RADIUS = 0.02;
 
-// Más portales para obligar a usarlos.
-const RANDOM_PORTAL_COUNT = 10;
-const LINKED_PORTAL_PAIR_COUNT = 6;
+const RANDOM_PORTAL_COUNT = 12;
+const LINKED_PORTAL_PAIR_COUNT = 7;
 
 const PORTAL_WIDTH = 1.05;
 const PORTAL_HEIGHT = 1.55;
 
-// Más fácil de activar, pero requiere acercarse.
-const PORTAL_TRIGGER_DISTANCE_FROM_PLANE = 0.42;
-const PORTAL_TRIGGER_HALF_WIDTH = 0.72;
+const PORTAL_TRIGGER_DISTANCE_FROM_PLANE = 0.48;
+const PORTAL_TRIGGER_HALF_WIDTH = 0.78;
 const PORTAL_COOLDOWN_TIME = 1.35;
 const PORTAL_EXIT_DISTANCE = 1.8;
 
-const CLUE_ROTATE_180 = true;
+const CLUE_ROTATE_180 = false;
+const CLUE_FLIP_HORIZONTAL = true;
 
 const ASSETS = {
     affects: {
@@ -125,13 +127,22 @@ async function init() {
 
     renderer = new THREE.WebGLRenderer({
         canvas,
-        antialias: true,
+        antialias: false,
         powerPreference: 'high-performance'
     });
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.xr.enabled = true;
+
+    if (renderer.xr.setFramebufferScaleFactor) {
+        renderer.xr.setFramebufferScaleFactor(0.75);
+    }
+
+    if (renderer.xr.setFoveation) {
+        renderer.xr.setFoveation(1);
+    }
+
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1;
@@ -294,7 +305,7 @@ async function loadAudio() {
         bgmAudio = new THREE.Audio(listener);
         bgmAudio.setBuffer(buffer);
         bgmAudio.setLoop(true);
-        bgmAudio.setVolume(0.28);
+        bgmAudio.setVolume(0.24);
     } catch (error) {
         console.warn('No se pudo cargar música de fondo:', error);
     }
@@ -328,7 +339,7 @@ function setupPlayer() {
         speed: 2.45,
         runSpeed: 4.35,
         rotationSpeed: 2.6,
-        collisionRadius: 0.28,
+        collisionRadius: 0.31,
         desktopEyeHeight: 1.45
     });
 
@@ -378,9 +389,9 @@ function setupInteractables() {
     const neededMounts = 2 + RANDOM_PORTAL_COUNT + LINKED_PORTAL_PAIR_COUNT * 2;
 
     const mounts = labyrinth.findWallMountSpots(neededMounts, {
-        minDistanceBetween: 5,
+        minDistanceBetween: 4.2,
         avoid: [labyrinth.startPosition],
-        avoidDistance: 7,
+        avoidDistance: 6,
         reserve: true,
         reserveName: 'interactable'
     });
@@ -542,7 +553,7 @@ function setupPortals(portalMounts) {
         const mount = portalMounts[index++];
         if (!mount) break;
 
-        const portal = createVideoPortal(ASSETS.videos.portalP, PORTAL_WIDTH, PORTAL_HEIGHT);
+        const portal = createVideoPortal('portalP', ASSETS.videos.portalP, PORTAL_WIDTH, PORTAL_HEIGHT);
         portal.name = `Portal_P_${i + 1}`;
 
         placePortalOnWall(portal, mount, 1.25, 0.08);
@@ -560,12 +571,12 @@ function setupPortals(portalMounts) {
 
         if (!mountA || !mountB) break;
 
-        const portalA = createVideoPortal(ASSETS.videos.portalB, PORTAL_WIDTH, PORTAL_HEIGHT);
+        const portalA = createVideoPortal('portalB', ASSETS.videos.portalB, PORTAL_WIDTH, PORTAL_HEIGHT);
         portalA.name = `Portal_B_${i + 1}_A`;
         placePortalOnWall(portalA, mountA, 1.25, 0.08);
         scene.add(portalA);
 
-        const portalB = createVideoPortal(ASSETS.videos.portalB, PORTAL_WIDTH, PORTAL_HEIGHT);
+        const portalB = createVideoPortal('portalB', ASSETS.videos.portalB, PORTAL_WIDTH, PORTAL_HEIGHT);
         portalB.name = `Portal_B_${i + 1}_B`;
         placePortalOnWall(portalB, mountB, 1.25, 0.08);
         scene.add(portalB);
@@ -594,23 +605,40 @@ function placePortalOnWall(portal, mount, height = 1.25, offset = 0.06) {
     portal.userData.height = PORTAL_HEIGHT;
 }
 
-function createVideoPortal(path, width, height) {
+function getSharedVideoTexture(key, path) {
+    if (sharedPortalTextures[key]) {
+        return sharedPortalTextures[key];
+    }
+
     const video = document.createElement('video');
     video.src = path;
     video.loop = true;
     video.muted = true;
     video.playsInline = true;
     video.autoplay = true;
+    video.preload = 'auto';
     video.play().catch(() => {});
 
     const texture = new THREE.VideoTexture(video);
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+
+    sharedPortalTextures[key] = texture;
+
+    return texture;
+}
+
+function createVideoPortal(key, path, width, height) {
+    const texture = getSharedVideoTexture(key, path);
 
     const material = new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
         side: THREE.DoubleSide,
-        depthWrite: false
+        depthWrite: false,
+        depthTest: true
     });
 
     const mesh = new THREE.Mesh(
@@ -619,6 +647,7 @@ function createVideoPortal(path, width, height) {
     );
 
     mesh.renderOrder = 8;
+    mesh.frustumCulled = true;
 
     return mesh;
 }
@@ -687,8 +716,6 @@ function getPortalCheckPosition() {
 function teleportRigToSafeTarget(rig, target) {
     rig.position.x = target.x;
     rig.position.z = target.z;
-
-    // En VR no uses y = 1.65 porque el visor ya da altura.
     rig.position.y = renderer.xr.isPresenting ? 0 : target.y;
 }
 
@@ -839,6 +866,9 @@ function createBillboardText(text, options = {}) {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
 
     const material = new THREE.SpriteMaterial({
         map: texture,
@@ -902,6 +932,9 @@ function createExitSign() {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
 
     const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -1032,6 +1065,9 @@ function createSmallText(text, width = 0.5, height = 0.18, fontSize = 26) {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
 
     const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -1079,43 +1115,52 @@ function createCodeClues(code) {
     scene.add(codeCluesGroup);
 
     const digits = code.split('');
-
-    const floorPositions = labyrinth.getRandomWalkablePositions(4, 10, 6);
     const avoidPoints = getReservedInteractablePositions();
 
-    const wallPositions = labyrinth.findWallMountSpots(4, {
-        minDistanceBetween: 5,
+    const floorPositions = labyrinth.getRandomWalkablePositions(12, 8, 7);
+    const wallPositions = labyrinth.findWallMountSpots(12, {
+        minDistanceBetween: 6.5,
         avoid: avoidPoints,
-        avoidDistance: 4
+        avoidDistance: 4.5
     });
 
-    for (let i = 0; i < 4; i++) {
-        const digit = digits[i];
+    for (let i = 0; i < 12; i++) {
+        const digitIndex = i % 4;
+        const digit = digits[digitIndex];
         const pos = floorPositions[i];
 
         if (!pos) continue;
 
-        const clue = createNumberClue(`${i + 1}°  ${digit}`, 1.05, 0.62, 62);
+        const clue = createNumberClue(`${digitIndex + 1}°  ${digit}`, 1.05, 0.62, 62);
 
         clue.position.set(pos.x, 0.025, pos.z);
         clue.rotation.x = -Math.PI / 2;
         clue.rotation.z = Math.random() * Math.PI * 2 + (CLUE_ROTATE_180 ? Math.PI : 0);
 
+        if (CLUE_FLIP_HORIZONTAL) {
+            clue.scale.x *= -1;
+        }
+
         codeCluesGroup.add(clue);
     }
 
-    for (let i = 0; i < 4; i++) {
-        const digit = digits[i];
+    for (let i = 0; i < 12; i++) {
+        const digitIndex = i % 4;
+        const digit = digits[digitIndex];
         const spot = wallPositions[i];
 
         if (!spot) continue;
 
-        const clue = createNumberClue(`${i + 1}°  ${digit}`, 1.05, 0.62, 62);
+        const clue = createNumberClue(`${digitIndex + 1}°  ${digit}`, 1.05, 0.62, 62);
 
         clue.position.copy(spot.position);
         clue.position.y = 1.38;
         clue.position.addScaledVector(spot.normal, 0.06);
-        clue.rotation.y = spot.rotationY + (CLUE_ROTATE_180 ? Math.PI : 0);
+        clue.rotation.y = spot.rotationY;
+
+        if (CLUE_FLIP_HORIZONTAL) {
+            clue.scale.x *= -1;
+        }
 
         codeCluesGroup.add(clue);
     }
@@ -1162,6 +1207,9 @@ function createNumberClue(text, width = 1.05, height = 0.62, fontSize = 62) {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
 
     const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -1337,7 +1385,11 @@ function finishGame() {
     updateBillboardText(promptGroup, '¡Escapaste del laberinto!');
     promptGroup.visible = true;
 
-    showEndScreen();
+    if (renderer.xr.isPresenting) {
+        showVRVictoryPanel();
+    } else {
+        showEndScreen();
+    }
 }
 
 function showEndScreen() {
@@ -1416,17 +1468,97 @@ function showEndScreen() {
     });
 }
 
-function placeUIInFrontOfPlayer(object, distance = 1.05, height = 1.45) {
-    const rig = player.getObject();
+function showVRVictoryPanel() {
+    if (victoryPanel) return;
 
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.quaternion);
+    victoryPanel = new THREE.Group();
+    victoryPanel.name = 'VRVictoryPanel';
+
+    const panel = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.4, 1.35),
+        new THREE.MeshBasicMaterial({
+            color: 0x00191c,
+            transparent: true,
+            opacity: 0.92,
+            side: THREE.DoubleSide,
+            depthTest: false
+        })
+    );
+
+    const title = createVRPanelText('¡ESCAPASTE!', 1.85, 0.36, 54, '#6dff8a');
+    title.position.set(0, 0.32, 0.02);
+
+    const message = createVRPanelText('Completaste el laberinto correctamente', 2.1, 0.22, 28, '#00ffe7');
+    message.position.set(0, -0.05, 0.02);
+
+    const hint = createVRPanelText('Sal de VR o recarga la página para reiniciar', 2.0, 0.18, 22, '#ffffff');
+    hint.position.set(0, -0.38, 0.02);
+
+    victoryPanel.add(panel, title, message, hint);
+
+    placeUIInFrontOfPlayer(victoryPanel, 1.65, 1.45);
+
+    victoryPanel.renderOrder = 100;
+    scene.add(victoryPanel);
+}
+
+function createVRPanelText(text, width, height, fontSize, color = '#ffffff') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 256;
+
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.font = `900 ${fontSize * 3}px Orbitron, Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = color;
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+
+    const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        depthTest: false
+    });
+
+    const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, height),
+        material
+    );
+
+    mesh.renderOrder = 101;
+
+    return mesh;
+}
+
+function placeUIInFrontOfPlayer(object, distance = 1.05, height = 1.45) {
+    const worldPos = camera.getWorldPosition(new THREE.Vector3());
+    const forward = camera.getWorldDirection(new THREE.Vector3());
+
     forward.y = 0;
+
+    if (forward.lengthSq() < 0.0001) {
+        forward.set(0, 0, -1).applyQuaternion(player.getObject().quaternion);
+    }
+
     forward.normalize();
 
-    object.position.copy(rig.position).addScaledVector(forward, distance);
+    object.position.copy(worldPos).addScaledVector(forward, distance);
     object.position.y = height;
 
-    object.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+    object.lookAt(worldPos);
 }
 
 function updatePrompt() {
@@ -1479,6 +1611,12 @@ function updatePinpadBillboard() {
     pinpadUI.lookAt(camera.getWorldPosition(new THREE.Vector3()));
 }
 
+function updateVictoryPanel() {
+    if (!victoryPanel || !renderer.xr.isPresenting) return;
+
+    victoryPanel.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+}
+
 function updateHudCode(value) {
     const hudCode = document.getElementById('hud-code-value');
     if (!hudCode) return;
@@ -1522,6 +1660,7 @@ function animate() {
 
     updatePrompt();
     updatePinpadBillboard();
+    updateVictoryPanel();
     updatePortalTeleport(delta);
 
     renderer.render(scene, camera);

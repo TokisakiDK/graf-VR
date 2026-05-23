@@ -51,10 +51,6 @@ export class Player {
         this.tempForward = new THREE.Vector3();
         this.tempRight = new THREE.Vector3();
         this.tempMove = new THREE.Vector3();
-        this.tempHead = new THREE.Vector3();
-
-        this.lastSafeHeadPosition = new THREE.Vector3();
-        this.lastSafeRigPosition = new THREE.Vector3();
 
         this.setupEvents();
     }
@@ -96,9 +92,7 @@ export class Player {
         });
 
         this.renderer.xr.addEventListener('sessionstart', () => {
-            // En VR la altura la da el visor.
             this.rig.position.y = 0;
-            this.storeSafeHeadPosition();
 
             if (this.desktopAvatar) {
                 this.desktopAvatar.visible = false;
@@ -106,7 +100,6 @@ export class Player {
         });
 
         this.renderer.xr.addEventListener('sessionend', () => {
-            // En PC se usa altura manual.
             this.rig.position.y = this.desktopEyeHeight;
 
             if (this.desktopAvatar) {
@@ -162,15 +155,9 @@ export class Player {
         return this.rig.position.clone();
     }
 
-    storeSafeHeadPosition() {
-        this.camera.getWorldPosition(this.lastSafeHeadPosition);
-        this.lastSafeRigPosition.copy(this.rig.position);
-    }
-
     update(delta) {
         this.handleXRInput(delta);
         this.handleDesktopInput(delta);
-        this.preventHeadInsideWalls();
         this.updateDesktopAvatar();
     }
 
@@ -227,7 +214,6 @@ export class Player {
         if (this.pinpadMode) {
             this.handlePinpadVRNavigation(lookX, lookY, delta);
         } else {
-            // Movimiento VR sincronizado con la dirección real del visor.
             this.moveRelative(-moveY, moveX, speed, delta, true);
 
             if (Math.abs(lookX) > 0) {
@@ -325,37 +311,6 @@ export class Player {
 
         if (this.labyrinth.isWalkableWorld(this.rig.position.x, nextZ, this.collisionRadius)) {
             this.rig.position.z = nextZ;
-        }
-
-        if (this.renderer.xr.isPresenting) {
-            this.storeSafeHeadPosition();
-        }
-    }
-
-    preventHeadInsideWalls() {
-        if (!this.renderer.xr.isPresenting) return;
-
-        this.camera.getWorldPosition(this.tempHead);
-
-        const headIsSafe = this.labyrinth.isWalkableWorld(
-            this.tempHead.x,
-            this.tempHead.z,
-            this.collisionRadius
-        );
-
-        if (headIsSafe) {
-            this.storeSafeHeadPosition();
-            return;
-        }
-
-        const correctionX = this.lastSafeHeadPosition.x - this.tempHead.x;
-        const correctionZ = this.lastSafeHeadPosition.z - this.tempHead.z;
-
-        this.rig.position.x += correctionX;
-        this.rig.position.z += correctionZ;
-
-        if (!this.labyrinth.isWalkableWorld(this.rig.position.x, this.rig.position.z, this.collisionRadius)) {
-            this.rig.position.copy(this.lastSafeRigPosition);
         }
     }
 
