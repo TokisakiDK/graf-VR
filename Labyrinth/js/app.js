@@ -1014,7 +1014,8 @@ function createCodeClues(code) {
 
         if (!pos) continue;
 
-        const clue = createNumberClue(digit, 0.72, 0.72, 90);
+        // Pista de orden en el suelo.
+        const clue = createNumberClue(`${i + 1}°  ${digit}`, 1.05, 0.62, 62);
 
         clue.position.set(pos.x, 0.025, pos.z);
         clue.rotation.x = -Math.PI / 2;
@@ -1029,7 +1030,8 @@ function createCodeClues(code) {
 
         if (!spot) continue;
 
-        const clue = createNumberClue(digit, 0.7, 0.7, 90);
+        // Pista de orden en pared.
+        const clue = createNumberClue(`${i + 1}°  ${digit}`, 1.05, 0.62, 62);
 
         clue.position.copy(spot.position);
         clue.position.y = 1.38;
@@ -1040,9 +1042,9 @@ function createCodeClues(code) {
     }
 }
 
-function createNumberClue(number, width = 0.7, height = 0.7, fontSize = 90) {
+function createNumberClue(text, width = 1.05, height = 0.62, fontSize = 62) {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
+    canvas.width = 1024;
     canvas.height = 512;
 
     const ctx = canvas.getContext('2d');
@@ -1052,13 +1054,13 @@ function createNumberClue(number, width = 0.7, height = 0.7, fontSize = 90) {
     const gradient = ctx.createRadialGradient(
         canvas.width / 2,
         canvas.height / 2,
-        20,
+        30,
         canvas.width / 2,
         canvas.height / 2,
-        230
+        420
     );
 
-    gradient.addColorStop(0, 'rgba(0,255,231,0.65)');
+    gradient.addColorStop(0, 'rgba(0,255,231,0.68)');
     gradient.addColorStop(0.5, 'rgba(0,255,231,0.18)');
     gradient.addColorStop(1, 'rgba(0,0,0,0)');
 
@@ -1070,14 +1072,14 @@ function createNumberClue(number, width = 0.7, height = 0.7, fontSize = 90) {
     ctx.textBaseline = 'middle';
 
     ctx.shadowColor = '#00ffe7';
-    ctx.shadowBlur = 36;
+    ctx.shadowBlur = 42;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(number, canvas.width / 2, canvas.height / 2 + 8);
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
 
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 10;
     ctx.strokeStyle = '#ff00c8';
-    ctx.lineWidth = 7;
-    ctx.strokeText(number, canvas.width / 2, canvas.height / 2 + 8);
+    ctx.lineWidth = 8;
+    ctx.strokeText(text, canvas.width / 2, canvas.height / 2 + 10);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -1094,7 +1096,7 @@ function createNumberClue(number, width = 0.7, height = 0.7, fontSize = 90) {
         material
     );
 
-    mesh.name = `CodeClue_${number}`;
+    mesh.name = `CodeClue_${text}`;
     mesh.renderOrder = 10;
 
     return mesh;
@@ -1127,6 +1129,8 @@ function openPinpad() {
 
     pinpadUI.visible = true;
 
+    player.setPinpadMode(true);
+
     placeUIInFrontOfPlayer(pinpadUI, 1.25, 1.55);
 
     updatePinpadDisplay();
@@ -1140,6 +1144,8 @@ function closePinpad() {
 
     pinpadOpen = false;
     pinpadUI.visible = false;
+
+    player.setPinpadMode(false);
 
     playSound('pin', 0.45);
 }

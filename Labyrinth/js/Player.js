@@ -11,13 +11,22 @@ export class Player {
         this.rotationSpeed = options.rotationSpeed ?? 2.45;
         this.collisionRadius = options.collisionRadius ?? 0.28;
 
+        this.desktopEyeHeight = options.desktopEyeHeight ?? 1.45;
+
         this.rig = new THREE.Group();
         this.rig.name = 'PlayerRig';
-        this.rig.position.copy(labyrinth.startPosition);
+
+        // En PC usamos altura manual.
+        // En VR la altura la da el visor, por eso se cambia al iniciar XR.
+        this.rig.position.set(
+            labyrinth.startPosition.x,
+            this.desktopEyeHeight,
+            labyrinth.startPosition.z
+        );
+
         this.rig.add(camera);
 
         this.desktopAvatar = null;
-
         this.keys = new Set();
 
         this.leftController = renderer.xr.getController(0);
@@ -39,6 +48,7 @@ export class Player {
             pinpadClose: null
         };
 
+        this.pinpadMode = false;
         this.navCooldown = 0;
 
         this.tempForward = new THREE.Vector3();
@@ -52,7 +62,7 @@ export class Player {
         window.addEventListener('keydown', (e) => {
             this.keys.add(e.code);
 
-            if (e.code === 'KeyE' && this.callbacks.interact) {
+            if (e.code === 'KeyE' && this.callbacks.interact && !this.pinpadMode) {
                 this.callbacks.interact();
             }
 
@@ -85,11 +95,22 @@ export class Player {
         });
 
         this.renderer.xr.addEventListener('sessionstart', () => {
-            if (this.desktopAvatar) this.desktopAvatar.visible = false;
+            // Corrección de altura VR:
+            // el visor ya aporta la altura de la cabeza.
+            this.rig.position.y = 0;
+
+            if (this.desktopAvatar) {
+                this.desktopAvatar.visible = false;
+            }
         });
 
         this.renderer.xr.addEventListener('sessionend', () => {
-            if (this.desktopAvatar) this.desktopAvatar.visible = true;
+            // Al volver a PC, recuperamos altura manual.
+            this.rig.position.y = this.desktopEyeHeight;
+
+            if (this.desktopAvatar) {
+                this.desktopAvatar.visible = true;
+            }
         });
 
         this.leftController.addEventListener('connected', (event) => {
@@ -120,6 +141,14 @@ export class Player {
         this.desktopAvatar = object3D;
     }
 
+    setPinpadMode(enabled) {
+        this.pinpadMode = enabled;
+
+        if (!enabled) {
+            this.navCooldown = 0;
+        }
+    }
+
     getObject() {
         return this.rig;
     }
@@ -136,6 +165,9 @@ export class Player {
 
     handleDesktopInput(delta) {
         if (this.renderer.xr.isPresenting) return;
+
+        // Mientras el pinpad está abierto, no se mueve ni gira la cámara.
+        if (this.pinpadMode) return;
 
         let forwardAmount = 0;
         let rightAmount = 0;
@@ -183,19 +215,23 @@ export class Player {
         const leftRun = this.isButtonPressed(leftGamepad, [0, 1]);
         const speed = leftRun ? this.runSpeed : this.speed;
 
-        this.moveRelative(-moveY, moveX, speed, delta);
+        if (this.pinpadMode) {
+            // En pinpad: el joystick derecho solo navega botones.
+            // No gira la cámara y no permite movimiento.
+            this.handlePinpadVRNavigation(lookX, lookY, delta);
+        } else {
+            this.moveRelative(-moveY, moveX, speed, delta);
 
-        if (Math.abs(lookX) > 0) {
-            this.rig.rotation.y -= lookX * this.rotationSpeed * delta;
+            if (Math.abs(lookX) > 0) {
+                this.rig.rotation.y -= lookX * this.rotationSpeed * delta;
+            }
         }
-
-        this.handlePinpadVRNavigation(lookX, lookY, delta);
 
         const rightSelect = this.isButtonPressed(rightGamepad, [0, 4]);
         const rightBack = this.isButtonPressed(rightGamepad, [1, 5]);
 
         if (rightSelect && !this.previousButtons.rightSelect) {
-            if (this.callbacks.pinpadSelect) {
+            if (this.pinpadMode && this.callbacks.pinpadSelect) {
                 this.callbacks.pinpadSelect();
             } else if (this.callbacks.interact) {
                 this.callbacks.interact();
@@ -250,7 +286,9 @@ export class Player {
         this.tempMove.addScaledVector(this.tempForward, forwardAmount);
         this.tempMove.addScaledVector(this.tempRight, rightAmount);
 
-        if (this.tempMove.lengthSq() > 1) this.tempMove.normalize();
+        if (this.tempMove.lengthSq() > 1) {
+            this.tempMove.normalize();
+        }
 
         this.tempMove.multiplyScalar(speed * delta);
 
