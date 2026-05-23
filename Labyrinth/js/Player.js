@@ -16,8 +16,6 @@ export class Player {
         this.rig = new THREE.Group();
         this.rig.name = 'PlayerRig';
 
-        // En PC usamos altura manual.
-        // En VR la altura la da el visor, por eso se cambia al iniciar XR.
         this.rig.position.set(
             labyrinth.startPosition.x,
             this.desktopEyeHeight,
@@ -95,8 +93,6 @@ export class Player {
         });
 
         this.renderer.xr.addEventListener('sessionstart', () => {
-            // Corrección de altura VR:
-            // el visor ya aporta la altura de la cabeza.
             this.rig.position.y = 0;
 
             if (this.desktopAvatar) {
@@ -105,7 +101,6 @@ export class Player {
         });
 
         this.renderer.xr.addEventListener('sessionend', () => {
-            // Al volver a PC, recuperamos altura manual.
             this.rig.position.y = this.desktopEyeHeight;
 
             if (this.desktopAvatar) {
@@ -165,8 +160,6 @@ export class Player {
 
     handleDesktopInput(delta) {
         if (this.renderer.xr.isPresenting) return;
-
-        // Mientras el pinpad está abierto, no se mueve ni gira la cámara.
         if (this.pinpadMode) return;
 
         let forwardAmount = 0;
@@ -216,8 +209,6 @@ export class Player {
         const speed = leftRun ? this.runSpeed : this.speed;
 
         if (this.pinpadMode) {
-            // En pinpad: el joystick derecho solo navega botones.
-            // No gira la cámara y no permite movimiento.
             this.handlePinpadVRNavigation(lookX, lookY, delta);
         } else {
             this.moveRelative(-moveY, moveX, speed, delta);

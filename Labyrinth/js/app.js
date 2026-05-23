@@ -28,6 +28,9 @@ let sounds = {};
 let doorObject;
 let pinpadObject;
 
+let exitSign = null;
+let endScreen = null;
+
 let portalCooldown = 0;
 let randomPortalsP = [];
 let linkedPortalsB = [];
@@ -52,7 +55,6 @@ let codeCluesGroup;
 const DOOR_TARGET_HEIGHT = 2.35;
 const PINPAD_TARGET_HEIGHT = 0.62;
 
-// Casi cero para evitar barreras invisibles frente a puerta y pinpad.
 const DOOR_COLLISION_RADIUS = 0.02;
 const PINPAD_COLLISION_RADIUS = 0.02;
 
@@ -62,14 +64,9 @@ const LINKED_PORTAL_PAIR_COUNT = 3;
 const PORTAL_WIDTH = 0.95;
 const PORTAL_HEIGHT = 1.45;
 
-// Activación más estricta: debes estar pegado al portal.
 const PORTAL_TRIGGER_DISTANCE_FROM_PLANE = 0.22;
 const PORTAL_TRIGGER_HALF_WIDTH = 0.48;
-
-// Cooldown más largo para evitar bucles.
 const PORTAL_COOLDOWN_TIME = 1.6;
-
-// Salida más lejos del portal para no quedar dentro del trigger.
 const PORTAL_EXIT_DISTANCE = 1.8;
 
 const CLUE_ROTATE_180 = true;
@@ -80,7 +77,8 @@ const ASSETS = {
         pin: './assets/affects/pin.wav',
         pinpad: './assets/affects/pinpad.wav',
         portalB: './assets/affects/portal_b.wav',
-        portalP: './assets/affects/portal_p.wav'
+        portalP: './assets/affects/portal_p.wav',
+        exit: './assets/affects/exit.wav'
     },
     bgm: [
         './assets/bgm/dm1.wav',
@@ -156,10 +154,13 @@ async function init() {
         wallHeight: 2.8
     });
 
-    labyrinth.placeDecorations(models);
+    setupInteractables();
+
+    labyrinth.placeDecorations(models, {
+        avoid: getReservedInteractablePositions()
+    });
 
     setupPlayer();
-    setupInteractables();
     setupUI();
 
     playerCode = generateCode();
@@ -325,7 +326,8 @@ function setupPlayer() {
         speed: 2.45,
         runSpeed: 4.35,
         rotationSpeed: 2.6,
-        collisionRadius: 0.28
+        collisionRadius: 0.28,
+        desktopEyeHeight: 1.45
     });
 
     scene.add(player.getObject());
@@ -376,17 +378,46 @@ function setupInteractables() {
     const mounts = labyrinth.findWallMountSpots(neededMounts, {
         minDistanceBetween: 7,
         avoid: [labyrinth.startPosition],
-        avoidDistance: 7
+        avoidDistance: 7,
+        reserve: true,
+        reserveName: 'interactable'
     });
 
-    doorMount = mounts[0] ?? labyrinth.findWallMountSpot();
-    pinpadMount = mounts[1] ?? labyrinth.findWallMountSpot();
+    doorMount = mounts[0] ?? labyrinth.findWallMountSpot({
+        reserve: true,
+        reserveName: 'door'
+    });
+
+    pinpadMount = mounts[1] ?? labyrinth.findWallMountSpot({
+        avoid: [doorMount.position],
+        avoidDistance: 8,
+        reserve: true,
+        reserveName: 'pinpad'
+    });
 
     setupDoor();
     setupPinpad();
 
     const portalMounts = mounts.slice(2);
     setupPortals(portalMounts);
+}
+
+function getReservedInteractablePositions() {
+    const positions = [];
+
+    if (doorMount) positions.push(doorMount.position);
+    if (pinpadMount) positions.push(pinpadMount.position);
+
+    for (const portal of randomPortalsP) {
+        positions.push(portal.mount.position);
+    }
+
+    for (const pair of linkedPortalsB) {
+        positions.push(pair.a.mount.position);
+        positions.push(pair.b.mount.position);
+    }
+
+    return positions;
 }
 
 function setupDoor() {
@@ -427,6 +458,14 @@ function setupDoor() {
     }
 
     scene.add(doorObject);
+
+    exitSign = createExitSign();
+    exitSign.position.copy(doorMount.position);
+    exitSign.position.y = 2.15;
+    exitSign.position.addScaledVector(doorMount.normal, 0.08);
+    exitSign.rotation.y = doorMount.rotationY;
+    exitSign.visible = false;
+    scene.add(exitSign);
 }
 
 function setupPinpad() {
@@ -665,8 +704,6 @@ function teleportToLinkedPortal(destinationMount) {
     const safeTarget = getSafePositionAwayFromPortal(destinationMount);
 
     rig.position.copy(safeTarget);
-
-    // Mira hacia afuera del portal de salida.
     rig.rotation.y = destinationMount.rotationY + Math.PI;
 
     portalCooldown = PORTAL_COOLDOWN_TIME;
@@ -824,6 +861,48 @@ function updateBillboardText(sprite, text) {
     ctx.fillText(text, canvas.width / 2, canvas.height / 2);
 
     texture.needsUpdate = true;
+}
+
+function createExitSign() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 192;
+
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = 'rgba(0, 20, 0, 0.72)';
+    roundRect(ctx, 0, 0, canvas.width, canvas.height, 28);
+    ctx.fill();
+
+    ctx.font = '900 92px Orbitron, Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.shadowColor = '#00ff66';
+    ctx.shadowBlur = 28;
+    ctx.fillStyle = '#6dff8a';
+    ctx.fillText('EXIT', canvas.width / 2, canvas.height / 2 + 4);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false
+    });
+
+    const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.85, 0.32),
+        material
+    );
+
+    mesh.renderOrder = 12;
+
+    return mesh;
 }
 
 function createPinpadUI() {
@@ -988,19 +1067,7 @@ function createCodeClues(code) {
 
     const floorPositions = labyrinth.getRandomWalkablePositions(4, 10, 6);
 
-    const avoidPoints = [
-        doorMount.position,
-        pinpadMount.position
-    ];
-
-    for (const p of randomPortalsP) {
-        avoidPoints.push(p.mount.position);
-    }
-
-    for (const pair of linkedPortalsB) {
-        avoidPoints.push(pair.a.mount.position);
-        avoidPoints.push(pair.b.mount.position);
-    }
+    const avoidPoints = getReservedInteractablePositions();
 
     const wallPositions = labyrinth.findWallMountSpots(4, {
         minDistanceBetween: 5,
@@ -1014,7 +1081,6 @@ function createCodeClues(code) {
 
         if (!pos) continue;
 
-        // Pista de orden en el suelo.
         const clue = createNumberClue(`${i + 1}°  ${digit}`, 1.05, 0.62, 62);
 
         clue.position.set(pos.x, 0.025, pos.z);
@@ -1030,7 +1096,6 @@ function createCodeClues(code) {
 
         if (!spot) continue;
 
-        // Pista de orden en pared.
         const clue = createNumberClue(`${i + 1}°  ${digit}`, 1.05, 0.62, 62);
 
         clue.position.copy(spot.position);
@@ -1110,13 +1175,13 @@ function handleInteraction() {
     const distanceToPinpad = distanceXZ(pos, pinpadMount.accessPosition);
     const distanceToDoor = distanceXZ(pos, doorMount.accessPosition);
 
-    if (distanceToPinpad < 2.8) {
+    if (distanceToPinpad < 2.8 && !hasCode) {
         openPinpad();
         return;
     }
 
     if (distanceToDoor < 2.6) {
-        tryOpenDoor();
+        tryExitDoor();
     }
 }
 
@@ -1198,9 +1263,13 @@ function validatePinpadCode() {
         closePinpad();
 
         updateHudCode(playerCode);
-        updateBillboardText(promptGroup, 'Código obtenido. Busca la puerta de salida.');
+        updateBillboardText(promptGroup, 'Código correcto. Busca la puerta EXIT.');
 
-        playSound('portalP', 0.85);
+        if (exitSign) {
+            exitSign.visible = true;
+        }
+
+        playSound('pinpad', 0.85);
     } else {
         enteredCode = '';
         playSound('error', 0.8);
@@ -1227,25 +1296,110 @@ function updateButtonSelection() {
     });
 }
 
-function tryOpenDoor() {
+function tryExitDoor() {
     if (!hasCode) {
         updateBillboardText(promptGroup, 'Necesitas encontrar el PinPad primero');
         playSound('error', 0.75);
         return;
     }
 
+    updateBillboardText(promptGroup, '¡Escapaste del laberinto!');
+    promptGroup.visible = true;
+
+    playSound('exit', 1);
+
+    finishGame();
+}
+
+function finishGame() {
+    if (gameWon) return;
+
     gameWon = true;
 
-    playSound('portalB', 1);
+    if (player?.setPinpadMode) {
+        player.setPinpadMode(true);
+    }
 
     updateBillboardText(promptGroup, '¡Escapaste del laberinto!');
     promptGroup.visible = true;
 
-    labyrinth.removeObstaclesByName('door');
+    showEndScreen();
+}
 
-    if (doorObject) {
-        doorObject.rotation.y += Math.PI / 2;
-    }
+function showEndScreen() {
+    if (endScreen) return;
+
+    endScreen = document.createElement('div');
+    endScreen.id = 'end-screen';
+
+    endScreen.innerHTML = `
+        <div class="end-card">
+            <h1>¡ESCAPASTE!</h1>
+            <p>Completaste el laberinto correctamente.</p>
+            <button id="restart-game">REINICIAR</button>
+        </div>
+    `;
+
+    Object.assign(endScreen.style, {
+        position: 'fixed',
+        inset: '0',
+        zIndex: '2000',
+        background: 'rgba(0, 0, 0, 0.78)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'Orbitron, Arial',
+        color: '#00ffe7',
+        backdropFilter: 'blur(6px)'
+    });
+
+    document.body.appendChild(endScreen);
+
+    const card = endScreen.querySelector('.end-card');
+
+    Object.assign(card.style, {
+        width: 'min(540px, 90vw)',
+        padding: '2.2rem',
+        border: '1px solid rgba(0,255,231,0.55)',
+        background: 'rgba(0,20,25,0.9)',
+        boxShadow: '0 0 45px rgba(0,255,231,0.38)',
+        textAlign: 'center',
+        borderRadius: '14px'
+    });
+
+    const title = endScreen.querySelector('h1');
+
+    Object.assign(title.style, {
+        marginBottom: '1rem',
+        color: '#6dff8a',
+        textShadow: '0 0 22px #00ff66',
+        letterSpacing: '0.12em'
+    });
+
+    const paragraph = endScreen.querySelector('p');
+
+    Object.assign(paragraph.style, {
+        color: 'rgba(0,255,231,0.8)',
+        marginBottom: '1.5rem'
+    });
+
+    const button = endScreen.querySelector('#restart-game');
+
+    Object.assign(button.style, {
+        marginTop: '1rem',
+        padding: '0.85rem 1.5rem',
+        background: 'rgba(0,255,231,0.12)',
+        border: '1px solid rgba(0,255,231,0.65)',
+        color: '#00ffe7',
+        cursor: 'pointer',
+        fontFamily: 'Orbitron, Arial',
+        letterSpacing: '0.12em',
+        borderRadius: '6px'
+    });
+
+    button.addEventListener('click', () => {
+        window.location.reload();
+    });
 }
 
 function placeUIInFrontOfPlayer(object, distance = 1.25, height = 1.55) {
@@ -1285,7 +1439,7 @@ function updatePrompt() {
         if (hudHint) hudHint.textContent = text;
     } else if (distanceToDoor < 2.6) {
         const text = hasCode
-            ? 'Abrir puerta: gatillo derecho / A / E'
+            ? 'Salir por EXIT: gatillo derecho / A / E'
             : 'Busca el PinPad antes de salir';
 
         updateBillboardText(promptGroup, text);

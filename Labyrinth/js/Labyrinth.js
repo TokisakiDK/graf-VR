@@ -29,6 +29,7 @@ export class Labyrinth {
 
         this.walkableWorldPositions = [];
         this.obstacles = [];
+        this.wallReservations = [];
 
         this.wallMesh = null;
         this.floorMesh = null;
@@ -349,6 +350,24 @@ export class Labyrinth {
         this.obstacles = this.obstacles.filter(obstacle => obstacle.name !== name);
     }
 
+    registerWallReservation(position, radius = 2.5, name = 'reserved') {
+        this.wallReservations.push({
+            position: position.clone(),
+            radius,
+            name
+        });
+    }
+
+    isWallReserved(position, radius = 1.5) {
+        for (const item of this.wallReservations) {
+            if (position.distanceTo(item.position) < item.radius + radius) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     isBlockedByObstacle(x, z, playerRadius = 0.26) {
         for (const obstacle of this.obstacles) {
             const dx = x - obstacle.position.x;
@@ -397,7 +416,6 @@ export class Labyrinth {
             if (pos.distanceTo(this.startPosition) < minDistanceFromStart) continue;
             if (pos.distanceTo(this.exitPosition) < 4) continue;
             if (pos.distanceTo(this.pinpadPosition) < 4) continue;
-
             if (!this.isWalkableWorld(pos.x, pos.z, 0.33)) continue;
 
             let tooClose = false;
@@ -454,6 +472,8 @@ export class Labyrinth {
         const minDistanceBetween = options.minDistanceBetween ?? 5;
         const avoid = options.avoid ?? [];
         const avoidDistance = options.avoidDistance ?? 5;
+        const reserve = options.reserve ?? false;
+        const reserveName = options.reserveName ?? 'mount';
 
         const candidates = [];
 
@@ -499,7 +519,6 @@ export class Labyrinth {
                         ? this.expandedGrid[r]?.[c + 1] === 0
                         : this.expandedGrid[r + 1]?.[c] === 0;
 
-                    // Evita esquinas: debe haber pasillo libre a ambos lados.
                     if (!sideA || !sideB) continue;
 
                     const base = this.gridToWorld(r, c);
@@ -507,6 +526,8 @@ export class Labyrinth {
 
                     const position = base.clone().addScaledVector(d.normal, -wallOffset);
                     position.y = 0;
+
+                    if (this.isWallReserved(position, 1.7)) continue;
 
                     let avoidSpot = false;
 
@@ -544,7 +565,17 @@ export class Labyrinth {
                 }
             }
 
-            if (!tooClose) selected.push(spot);
+            if (!tooClose) {
+                selected.push(spot);
+
+                if (reserve) {
+                    this.registerWallReservation(
+                        spot.position,
+                        minDistanceBetween * 0.55,
+                        reserveName
+                    );
+                }
+            }
         }
 
         return selected;
@@ -555,12 +586,22 @@ export class Labyrinth {
         return spots[0] ?? null;
     }
 
-    placeDecorations(models = {}) {
+    placeDecorations(models = {}, options = {}) {
         const cactus = models.cactus_maceta;
         const maceta = models.maceta;
         const cuadro = models.cuadro;
 
-        const floorDecorations = this.getRandomWalkablePositions(34, 8, 3.4);
+        const avoid = options.avoid ?? [];
+
+        let floorDecorations = this.getRandomWalkablePositions(34, 8, 3.4);
+
+        floorDecorations = floorDecorations.filter(pos => {
+            for (const point of avoid) {
+                if (pos.distanceTo(point) < 3.2) return false;
+            }
+
+            return true;
+        });
 
         floorDecorations.forEach((pos, i) => {
             let source = null;
@@ -580,6 +621,7 @@ export class Labyrinth {
             if (!source) return;
 
             const obj = source.clone(true);
+
             obj.position.set(pos.x, 0, pos.z);
             obj.rotation.y = Math.random() * Math.PI * 2;
 
@@ -604,8 +646,11 @@ export class Labyrinth {
 
         if (cuadro) {
             const wallSpots = this.findWallMountSpots(24, {
-                minDistanceBetween: 3.2,
-                avoidDistance: 4
+                minDistanceBetween: 3.4,
+                avoid,
+                avoidDistance: 4,
+                reserve: true,
+                reserveName: 'cuadro'
             });
 
             wallSpots.forEach((spot) => {
