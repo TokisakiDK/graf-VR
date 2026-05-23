@@ -58,15 +58,17 @@ const PINPAD_TARGET_HEIGHT = 0.62;
 const DOOR_COLLISION_RADIUS = 0.02;
 const PINPAD_COLLISION_RADIUS = 0.02;
 
-const RANDOM_PORTAL_COUNT = 5;
-const LINKED_PORTAL_PAIR_COUNT = 3;
+// Más portales para obligar a usarlos.
+const RANDOM_PORTAL_COUNT = 10;
+const LINKED_PORTAL_PAIR_COUNT = 6;
 
-const PORTAL_WIDTH = 0.95;
-const PORTAL_HEIGHT = 1.45;
+const PORTAL_WIDTH = 1.05;
+const PORTAL_HEIGHT = 1.55;
 
-const PORTAL_TRIGGER_DISTANCE_FROM_PLANE = 0.22;
-const PORTAL_TRIGGER_HALF_WIDTH = 0.48;
-const PORTAL_COOLDOWN_TIME = 1.6;
+// Más fácil de activar, pero requiere acercarse.
+const PORTAL_TRIGGER_DISTANCE_FROM_PLANE = 0.42;
+const PORTAL_TRIGGER_HALF_WIDTH = 0.72;
+const PORTAL_COOLDOWN_TIME = 1.35;
 const PORTAL_EXIT_DISTANCE = 1.8;
 
 const CLUE_ROTATE_180 = true;
@@ -376,7 +378,7 @@ function setupInteractables() {
     const neededMounts = 2 + RANDOM_PORTAL_COUNT + LINKED_PORTAL_PAIR_COUNT * 2;
 
     const mounts = labyrinth.findWallMountSpots(neededMounts, {
-        minDistanceBetween: 7,
+        minDistanceBetween: 5,
         avoid: [labyrinth.startPosition],
         avoidDistance: 7,
         reserve: true,
@@ -627,7 +629,7 @@ function updatePortalTeleport(delta) {
     if (portalCooldown > 0 || gameWon || pinpadOpen) return;
 
     const rig = player.getObject();
-    const pos = rig.position;
+    const pos = getPortalCheckPosition();
 
     for (const portal of randomPortalsP) {
         if (isPlayerInsidePortalTrigger(pos, portal.mesh, portal.mount)) {
@@ -648,11 +650,11 @@ function updatePortalTeleport(delta) {
 
             const target = labyrinth.getSafeTeleportPosition({
                 exclude: excluded,
-                minDistance: 7,
+                minDistance: 6,
                 radius: 0.42
             });
 
-            rig.position.copy(target);
+            teleportRigToSafeTarget(rig, target);
             portalCooldown = PORTAL_COOLDOWN_TIME;
             playSound('portalP', 1);
             return;
@@ -674,6 +676,22 @@ function updatePortalTeleport(delta) {
     }
 }
 
+function getPortalCheckPosition() {
+    if (renderer.xr.isPresenting) {
+        return camera.getWorldPosition(new THREE.Vector3());
+    }
+
+    return player.getObject().position.clone();
+}
+
+function teleportRigToSafeTarget(rig, target) {
+    rig.position.x = target.x;
+    rig.position.z = target.z;
+
+    // En VR no uses y = 1.65 porque el visor ya da altura.
+    rig.position.y = renderer.xr.isPresenting ? 0 : target.y;
+}
+
 function isPlayerInsidePortalTrigger(playerPosition, portalMesh, mount) {
     const normal = mount.normal.clone();
     normal.y = 0;
@@ -690,10 +708,7 @@ function isPlayerInsidePortalTrigger(playerPosition, portalMesh, mount) {
     const distanceFromPlane = Math.abs(toPlayer.dot(normal));
     const lateralDistance = Math.abs(toPlayer.dot(tangent));
 
-    const heightOk = playerPosition.y > 0.4 && playerPosition.y < 2.4;
-
     return (
-        heightOk &&
         distanceFromPlane <= PORTAL_TRIGGER_DISTANCE_FROM_PLANE &&
         lateralDistance <= PORTAL_TRIGGER_HALF_WIDTH
     );
@@ -703,9 +718,9 @@ function teleportToLinkedPortal(destinationMount) {
     const rig = player.getObject();
     const safeTarget = getSafePositionAwayFromPortal(destinationMount);
 
-    rig.position.copy(safeTarget);
-    rig.rotation.y = destinationMount.rotationY + Math.PI;
+    teleportRigToSafeTarget(rig, safeTarget);
 
+    rig.rotation.y = destinationMount.rotationY + Math.PI;
     portalCooldown = PORTAL_COOLDOWN_TIME;
 }
 
@@ -910,7 +925,7 @@ function createPinpadUI() {
     group.name = 'VRPinpadUI';
 
     const panel = new THREE.Mesh(
-        new THREE.BoxGeometry(1.7, 2.25, 0.08),
+        new THREE.BoxGeometry(1.25, 1.7, 0.07),
         new THREE.MeshStandardMaterial({
             color: 0x111827,
             roughness: 0.8,
@@ -920,13 +935,13 @@ function createPinpadUI() {
 
     group.add(panel);
 
-    const title = createSmallText('PINPAD VR', 0.82, 0.18);
-    title.position.set(0, 0.96, 0.07);
+    const title = createSmallText('PINPAD VR', 0.62, 0.14, 20);
+    title.position.set(0, 0.72, 0.06);
     group.add(title);
 
-    const display = createSmallText('____', 1.0, 0.24);
+    const display = createSmallText('____', 0.78, 0.2, 24);
     display.name = 'PinpadDisplay';
-    display.position.set(0, 0.66, 0.07);
+    display.position.set(0, 0.48, 0.06);
     group.add(display);
 
     const labels = [
@@ -938,10 +953,10 @@ function createPinpadUI() {
 
     pinpadButtons = [];
 
-    const startX = -0.48;
-    const startY = 0.3;
-    const gapX = 0.48;
-    const gapY = 0.36;
+    const startX = -0.35;
+    const startY = 0.22;
+    const gapX = 0.35;
+    const gapY = 0.27;
 
     labels.forEach((label, index) => {
         const col = index % 3;
@@ -952,7 +967,7 @@ function createPinpadUI() {
         btn.position.set(
             startX + col * gapX,
             startY - row * gapY,
-            0.1
+            0.085
         );
 
         btn.userData.label = label;
@@ -963,13 +978,13 @@ function createPinpadUI() {
     });
 
     const hint = createSmallText(
-        'Joystick derecho: navegar | Gatillo/A: elegir | B: cerrar',
-        1.45,
-        0.14,
-        18
+        'Joystick: navegar | A/Gatillo: elegir | B: cerrar',
+        1.05,
+        0.12,
+        14
     );
 
-    hint.position.set(0, -0.94, 0.07);
+    hint.position.set(0, -0.72, 0.06);
     group.add(hint);
 
     return group;
@@ -979,7 +994,7 @@ function createPinpadButton(label) {
     const group = new THREE.Group();
 
     const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(0.35, 0.25, 0.08),
+        new THREE.BoxGeometry(0.25, 0.19, 0.065),
         new THREE.MeshStandardMaterial({
             color: 0x243244,
             roughness: 0.7
@@ -988,8 +1003,8 @@ function createPinpadButton(label) {
 
     mesh.name = 'ButtonMesh';
 
-    const text = createSmallText(label, 0.29, 0.16, label.length > 1 ? 20 : 26);
-    text.position.z = 0.055;
+    const text = createSmallText(label, 0.21, 0.12, label.length > 1 ? 15 : 19);
+    text.position.z = 0.046;
 
     group.add(mesh, text);
 
@@ -1066,7 +1081,6 @@ function createCodeClues(code) {
     const digits = code.split('');
 
     const floorPositions = labyrinth.getRandomWalkablePositions(4, 10, 6);
-
     const avoidPoints = getReservedInteractablePositions();
 
     const wallPositions = labyrinth.findWallMountSpots(4, {
@@ -1196,7 +1210,7 @@ function openPinpad() {
 
     player.setPinpadMode(true);
 
-    placeUIInFrontOfPlayer(pinpadUI, 1.25, 1.55);
+    placeUIInFrontOfPlayer(pinpadUI, 1.05, 1.45);
 
     updatePinpadDisplay();
     updateButtonSelection();
@@ -1402,7 +1416,7 @@ function showEndScreen() {
     });
 }
 
-function placeUIInFrontOfPlayer(object, distance = 1.25, height = 1.55) {
+function placeUIInFrontOfPlayer(object, distance = 1.05, height = 1.45) {
     const rig = player.getObject();
 
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(rig.quaternion);
