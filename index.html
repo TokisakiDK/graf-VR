@@ -3,48 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>David Ramírez - Game Hub</title>
+    <title>Game Hub - Graficación Avanzada</title>
+
     <link rel="icon" type="image/png" href="assets/Cat.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="index.css">
 </head>
-<body class="bg-dark text-white d-flex flex-column min-vh-100">
 
-    <header class="py-3 border-bottom border-secondary bg-black">
-        <div class="container d-flex justify-content-between align-items-center">
-            <div class="d-flex align-items-center">
-                <img src="assets/Cat.png" alt="Logo" width="40" class="me-3">
-                <span class="fw-bold tracking-wider">GRAFICACIÓN AVANZADA</span>
+<body>
+
+    <div class="background-glow"></div>
+
+    <header class="main-header">
+        <div class="container header-content">
+            <div class="brand-box">
+                <img src="assets/Cat.png" alt="Logo" class="brand-logo">
+                <div>
+                    <h2 class="brand-title">GRAFICACIÓN AVANZADA</h2>
+                    <p class="brand-subtitle">Portafolio de Aplicaciones Interactivas 3D</p>
+                </div>
             </div>
-            <span class="badge bg-info text-dark">IT PACHUCA</span>
+
+            <div class="school-badge">
+                IT PACHUCA
+            </div>
         </div>
     </header>
 
-    <section class="py-5 text-center bg-gradient">
-        <div class="container">
-            <h1 class="display-3 fw-bold text-info">GAME HUB</h1>
-            <p class="lead text-secondary">Portafolio de Aplicaciones Interactivas 3D</p>
+    <section class="hero-section">
+        <div class="container text-center">
+            <p class="hero-kicker">PROYECTO FINAL</p>
+            <h1 class="hero-title">GAME HUB</h1>
+            <p class="hero-description">
+                Centro de ejecución para experiencias interactivas desarrolladas con tecnologías 3D, WebXR y entornos inmersivos.
+            </p>
         </div>
     </section>
 
-    <main class="container my-5">
+    <main class="container main-content">
         <div class="row g-4 justify-content-center">
-            <div class="col-md-5">
-                <div class="card bg-black border-info h-100 shadow-lg game-card">
-                    <img src="Labyrinth/assets/tapiz.webp" class="card-img-top" alt="Laberinto" style="height: 200px; object-fit: cover; opacity: 0.7;">
-                    <div class="card-body text-center p-4">
-                        <h4 class="card-title text-info mb-3">Laberinto de Día 3D</h4>
-                        <p class="card-text text-secondary mb-4">Explora un entorno tridimensional con portales dinámicos y cámara inteligente.</p>
-                        <a href="Labyrinth/index.html" class="btn btn-outline-info btn-lg w-100 fw-bold">EJECUTAR</a>
+
+            <div class="col-lg-6 col-md-8">
+                <article class="game-card">
+                    <div class="card-image-wrapper">
+                        <img src="assets/AllMight.avif" class="game-image" alt="Laberinto 3D">
+                        <div class="image-overlay"></div>
+                        <span class="game-tag">WEBXR / 3D</span>
                     </div>
+
+                    <div class="game-card-body">
+                        <h3 class="game-title">Laberinto de Día 3D</h3>
+
+                        <p class="game-description">
+                            Explora un laberinto inmersivo con portales dinámicos, pistas ocultas, pinpad interactivo y soporte para realidad virtual.
+                        </p>
+
+                        <div class="game-info">
+                            <span>Three.js</span>
+                            <span>VR Ready</span>
+                            <span>Portales</span>
+                        </div>
+
+                        <a href="Labyrinth/index.html" class="play-button">
+                            EJECUTAR JUEGO
+                        </a>
+                    </div>
+                </article>
+            </div>
+
+        </div>
+
+        <section class="team-section">
+            <h4 class="team-title">Integrantes</h4>
+
+            <div class="team-grid">
+                <div class="team-member">
+                    <span class="member-number">01</span>
+                    <p>Ramírez Vera David Adolfo</p>
+                </div>
+
+                <div class="team-member">
+                    <span class="member-number">02</span>
+                    <p>Rodríguez Bautista Giovanni Ariel</p>
+                </div>
+
+                <div class="team-member">
+                    <span class="member-number">03</span>
+                    <p>Hernández Hernández Donovan</p>
                 </div>
             </div>
-        </div>
+        </section>
     </main>
 
-    <footer class="py-3 bg-black mt-auto border-top border-secondary">
+    <footer class="main-footer">
         <div class="container text-center">
-            <p class="small text-secondary mb-0">David Adolfo Ramírez Vera | Ingeniería en Sistemas Computacionales</p>
+            <p>Ingeniería en Sistemas Computacionales · Instituto Tecnológico de Pachuca</p>
         </div>
     </footer>
 
